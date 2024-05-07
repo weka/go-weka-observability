@@ -1,0 +1,9 @@
+.idea
+*.test
+*.out
+*.prof
+/vendor/
+/Godeps/
+/.env
+/.env.*
+/.vscode
