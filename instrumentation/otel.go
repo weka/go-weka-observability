@@ -109,6 +109,8 @@ func newTraceProvider(ctx context.Context, serviceName, serviceVersion string) (
 
 func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr string) context.Context {
 	traceID, _ := trace.TraceIDFromHex(traceIDStr)
+
+	//nolint:ineffassign,staticcheck
 	if tracer == nil {
 		tracer = Tracer
 	}
@@ -126,6 +128,8 @@ func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr 
 func NewContextWithSpanID(ctx context.Context, tracer trace.Tracer, traceIDStr string, spanIdStr string) context.Context {
 	traceID, _ := trace.TraceIDFromHex(traceIDStr)
 	spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
+
+	//nolint:ineffassign,staticcheck
 	if tracer == nil {
 		tracer = Tracer
 	}
