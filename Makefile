@@ -1,0 +1,13 @@
+.PHONY: build test lint vet
+
+build:
+	go build ./...
+
+test:
+	go test ./...
+
+lint:
+	golangci-lint run ./...
+
+vet:
+	go vet ./...
