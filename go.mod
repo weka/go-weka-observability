@@ -1,4 +1,4 @@
-module github.com/weka/go-services-commons
+module github.com/weka/go-weka-observability
 
 go 1.21
 
@@ -10,7 +10,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.25.0
 	go.opentelemetry.io/otel/sdk v1.25.0
 	go.opentelemetry.io/otel/trace v1.25.0
-	gorm.io/gorm v1.23.8
 )
 
 require (
