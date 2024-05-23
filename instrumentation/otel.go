@@ -25,7 +25,7 @@ var (
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shutdown func(context.Context) error, err error) {
-	logger.Info().Str("service", serviceName).Str("version", serviceVersion).Msg("Setting up OTel SDK")
+	logger.Debug().Str("service", serviceName).Str("version", serviceVersion).Msg("Setting up OTel SDK")
 	Tracer = otel.Tracer(serviceName)
 
 	if otlpEndpoint == "" {
