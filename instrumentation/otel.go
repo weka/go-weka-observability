@@ -44,7 +44,7 @@ func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shut
 	otel.SetTextMapPropagator(prop)
 
 	// Set up trace provider.
-	logger.Info().Msg("Setting up OTel trace provider")
+	logger.Debug().Msg("Setting up OTel trace provider")
 	tracerProvider, err := newTraceProvider(ctx, serviceName, serviceVersion)
 	if err != nil {
 		handleErr(err)
