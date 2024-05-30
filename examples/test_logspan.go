@@ -58,12 +58,12 @@ func innerFunc1(ctx context.Context) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "innerFunc1")
 	defer end()
 
-	logger.Info("innerFunc1 is called")
+	logger.Info("innerFunc1 is called", "func", "innerFunc1")
 }
 
 func innerFunc2(ctx context.Context) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "innerFunc2")
 	defer end()
 
-	logger.Info("innerFunc2 is called")
+	logger.Info("innerFunc2 is called", "func", "innerFunc2")
 }

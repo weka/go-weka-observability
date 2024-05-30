@@ -88,12 +88,14 @@ func getAttributesFromKeysAndValues(keysAndValues ...any) []attribute.KeyValue {
 
 func (ls *SpanLogger) Info(msg string, keysAndValues ...any) {
 	ls.Logger.WithCallDepth(1).Info(msg, keysAndValues...)
+	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 
 func (ls *SpanLogger) Debug(msg string, keysAndValues ...any) {
 	// logr.V(1) is equivalent to zerolog.DebugLevel
 	ls.V(1).WithCallDepth(1).Info(msg, keysAndValues...)
+	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 
@@ -119,13 +121,7 @@ func (ls *SpanLogger) SetError(err error, msg string, keysAndValues ...any) {
 }
 
 func (ls *SpanLogger) SetAttributes(attrs ...attribute.KeyValue) {
-	var keyvals []any
-	for _, attr := range attrs {
-		keyvals = append(keyvals, string(attr.Key))
-		keyvals = append(keyvals, attr.Value.Emit())
-	}
-	if len(keyvals) > 0 && ls.Span != nil {
-		ls.V(1).Info("Setting attributes", keyvals...)
+	if ls.Span != nil && len(attrs) > 0 {
 		ls.Span.SetAttributes(attrs...)
 	}
 }
@@ -142,9 +138,7 @@ func (ls *SpanLogger) Panic(err error, msg string, keysAndValues ...any) {
 
 func (ls *SpanLogger) SetValues(keysAndValues ...any) {
 	ls.Logger = ls.Logger.WithValues(keysAndValues...)
-	if ls.Span != nil {
-		ls.Span.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
-	}
+	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 }
 
 func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger, func()) {
