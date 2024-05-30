@@ -3,129 +3,25 @@ package instrumentation
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"strconv"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
-	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	zerologger "github.com/weka/go-weka-observability/logger"
 )
-
-func init() {
-	setCallerDirDisplayLevel()
-}
-
-// Set the amount of nested dirs displayed before `<file_name>:<line_number>` for `caller` field in logger.
-// `LOG_CALLER_DIR_LVL` is used for this.
-// If unset - does nothing (default `caller` formatting is used)
-// If `LOG_CALLER_DIR_LVL=0`, only the filename and line number are displayed (e.g. `message_processor.go:89`)
-// see https://github.com/rs/zerolog/blob/master/README.md#add-file-and-line-number-to-log
-func setCallerDirDisplayLevel() {
-	callerDirLvl, ok := os.LookupEnv("LOG_CALLER_DIR_LVL")
-	if !ok {
-		return
-	}
-	// get "caller" dir level value
-	var lvl int // 0 by default (only file name will be displayed - with no dirs)
-	if val, err := strconv.Atoi(callerDirLvl); err == nil {
-		lvl = val
-	}
-	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
-		short := file
-		dirsNum := lvl
-		for i := len(file) - 1; i > 0; i-- {
-			if file[i] == '/' {
-				short = file[i+1:]
-				if dirsNum < 1 {
-					break
-				}
-				dirsNum--
-			}
-		}
-		file = short
-		return file + ":" + strconv.Itoa(line)
-	}
-}
 
 type ContextLoggerKey struct{}
 type ContextValuesKey struct{}
-
-type SpecificLevelWriter struct {
-	io.Writer
-	Levels []zerolog.Level
-}
-
-func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, error) {
-	for _, l := range w.Levels {
-		if l == level {
-			return w.Write(p)
-		}
-	}
-	return len(p), nil
-}
-
-func getWriter() io.Writer {
-	var stdOutWriter io.Writer
-	var stdErrWriter io.Writer
-
-	logFormat := os.Getenv("LOG_FORMAT")
-
-	if logFormat != "raw" {
-		stdOutWriter = os.Stdout
-		stdErrWriter = os.Stderr
-	} else {
-		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
-	}
-
-	writer := zerolog.MultiLevelWriter(
-		SpecificLevelWriter{
-			Writer: stdOutWriter,
-			Levels: []zerolog.Level{
-				zerolog.TraceLevel, zerolog.DebugLevel, zerolog.InfoLevel,
-			},
-		},
-		SpecificLevelWriter{
-			Writer: stdErrWriter,
-			Levels: []zerolog.Level{
-				zerolog.WarnLevel, zerolog.ErrorLevel, zerolog.FatalLevel, zerolog.PanicLevel,
-			},
-		},
-	)
-	return writer
-}
-
-func getLogLevel() zerolog.Level {
-	lvlStr := os.Getenv("LOG_LEVEL")
-	lvl := 1 // info level
-	if val, err := strconv.Atoi(lvlStr); err == nil {
-		lvl = val
-	}
-	return zerolog.Level(lvl)
-}
-
-func NewLogger() *zerolog.Logger {
-	log := zerolog.New(getWriter()).
-		Level(getLogLevel()).
-		With().
-		Timestamp().
-		Caller().
-		Logger()
-
-	return &log
-}
 
 // SpanLogger is an abstract object that can be used instead of regular loggers and spans
 type SpanLogger struct {
 	Ctx context.Context
 	logr.Logger
 	trace.Span
-	// spanName string // TODO: Do we need this?
 }
 
 func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name string, keysAndValues ...any) (context.Context, logr.Logger) {
@@ -134,7 +30,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 		if ctx.Value(ContextLoggerKey{}) != nil {
 			logger = ctx.Value(ContextLoggerKey{}).(logr.Logger)
 		} else {
-			initLogger := NewLogger()
+			initLogger := zerologger.NewZeroLogger()
 			logger = zerologr.New(initLogger)
 		}
 	} else {

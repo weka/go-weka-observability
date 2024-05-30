@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
@@ -13,19 +15,19 @@ import (
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc/credentials"
 )
 
 var (
 	Tracer trace.Tracer
 
-	logger       = NewLogger()
 	otlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 )
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
-func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shutdown func(context.Context) error, err error) {
-	logger.Debug().Str("service", serviceName).Str("version", serviceVersion).Msg("Setting up OTel SDK")
+func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger) (shutdown func(context.Context) error, err error) {
+	logger.V(1).WithCallDepth(1).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 	Tracer = otel.Tracer(serviceName)
 
 	if otlpEndpoint == "" {
@@ -44,8 +46,7 @@ func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shut
 	otel.SetTextMapPropagator(prop)
 
 	// Set up trace provider.
-	logger.Debug().Msg("Setting up OTel trace provider")
-	tracerProvider, err := newTraceProvider(ctx, serviceName, serviceVersion)
+	tracerProvider, err := newTraceProvider(ctx, serviceName, serviceVersion, logger)
 	if err != nil {
 		handleErr(err)
 		return shutdown, err
@@ -55,7 +56,7 @@ func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string) (shut
 	return func(ctx context.Context) error {
 		err = tracerProvider.ForceFlush(context.Background())
 		if err != nil {
-			logger.Error().Err(err).Msg("failed to flush traces")
+			logger.Error(err, "failed to flush traces")
 		}
 		return tracerProvider.Shutdown(ctx)
 	}, err
@@ -80,19 +81,24 @@ func newPropagator() propagation.TextMapPropagator {
 	)
 }
 
-func newTraceProvider(ctx context.Context, serviceName, serviceVersion string) (*tracesdk.TracerProvider, error) {
-	logger.Info().Msg("Setting up OTel trace provider")
+func newTraceProvider(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger) (*tracesdk.TracerProvider, error) {
+	logger.Info("Setting up OTel trace provider", "service", serviceName, "version", serviceVersion)
 	var traceProvider *tracesdk.TracerProvider
 
 	if otlpEndpoint != "" {
-		logger.Info().Msg("OTLP endpoint set to " + otlpEndpoint)
+		logger.Info("OTLP endpoint set", "endpoint", otlpEndpoint)
+
+		securityOption := otlptracegrpc.WithInsecure()
+		if strings.Contains(otlpEndpoint, "https://") {
+			securityOption = otlptracegrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, ""))
+		}
 		traceExporter, err := otlptracegrpc.New(ctx,
-			otlptracegrpc.WithInsecure(),
+			securityOption,
 			otlptracegrpc.WithTimeout(5*time.Second),
 			otlptracegrpc.WithEndpointURL(otlpEndpoint),
 		)
 		if err != nil {
-			logger.Error().Err(err).Msg("failed to create OTLP trace exporter")
+			logger.Error(err, "failed to create OTLP trace exporter")
 			return nil, err
 		}
 
