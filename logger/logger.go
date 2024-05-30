@@ -16,16 +16,12 @@ type Logger struct {
 	*zerolog.Logger
 }
 
-func init() {
-	setCallerDirDisplayLevel()
-}
-
 // Set the amount of nested dirs displayed before `<file_name>:<line_number>` for `caller` field in logger.
 // `LOG_CALLER_DIR_LVL` is used for this.
 // If unset - does nothing (default `caller` formatting is used)
 // If `LOG_CALLER_DIR_LVL=0`, only the filename and line number are displayed (e.g. `message_processor.go:89`)
 // see https://github.com/rs/zerolog/blob/master/README.md#add-file-and-line-number-to-log
-func setCallerDirDisplayLevel() {
+func SetCallerDirDisplayLevel() {
 	callerDirLvl, ok := os.LookupEnv("LOG_CALLER_DIR_LVL")
 	if !ok {
 		return
@@ -52,14 +48,52 @@ func setCallerDirDisplayLevel() {
 	}
 }
 
-func getWriter() io.Writer {
-	if os.Getenv("ENV") != "dev" {
-		return os.Stderr
-	}
-	return zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+type SpecificLevelWriter struct {
+	io.Writer
+	Levels []zerolog.Level
 }
 
-func getLogLevel() zerolog.Level {
+func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, error) {
+	for _, l := range w.Levels {
+		if l == level {
+			return w.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func GetMultiLevelWriter() io.Writer {
+	var stdOutWriter io.Writer
+	var stdErrWriter io.Writer
+
+	logFormat := os.Getenv("LOG_FORMAT")
+
+	if logFormat != "raw" {
+		stdOutWriter = os.Stdout
+		stdErrWriter = os.Stderr
+	} else {
+		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+	}
+
+	writer := zerolog.MultiLevelWriter(
+		SpecificLevelWriter{
+			Writer: stdOutWriter,
+			Levels: []zerolog.Level{
+				zerolog.TraceLevel, zerolog.DebugLevel, zerolog.InfoLevel,
+			},
+		},
+		SpecificLevelWriter{
+			Writer: stdErrWriter,
+			Levels: []zerolog.Level{
+				zerolog.WarnLevel, zerolog.ErrorLevel, zerolog.FatalLevel, zerolog.PanicLevel,
+			},
+		},
+	)
+	return writer
+}
+
+func GetLogLevel() zerolog.Level {
 	lvlStr := os.Getenv("LOG_LEVEL")
 	lvl := 1 // info level
 	if val, err := strconv.Atoi(lvlStr); err == nil {
@@ -69,13 +103,23 @@ func getLogLevel() zerolog.Level {
 }
 
 func NewLogger() *Logger {
-	log := zerolog.New(getWriter()).
-		Level(getLogLevel()).
+	log := zerolog.New(GetMultiLevelWriter()).
+		Level(GetLogLevel()).
 		With().
 		Timestamp().
 		Caller().
 		Logger()
 	return &Logger{&log}
+}
+
+func NewZeroLogger() *zerolog.Logger {
+	log := zerolog.New(GetMultiLevelWriter()).
+		Level(GetLogLevel()).
+		With().
+		Timestamp().
+		Caller().
+		Logger()
+	return &log
 }
 
 func (l *Logger) Printf(msg string, opts ...any) {
@@ -111,8 +155,8 @@ func (l *Logger) FatalErr(err error) {
 }
 
 func NewNamedLogger(serviceName string) *Logger {
-	log := zerolog.New(getWriter()).
-		Level(getLogLevel()).
+	log := zerolog.New(GetMultiLevelWriter()).
+		Level(GetLogLevel()).
 		With().
 		Str("service", serviceName).
 		Timestamp().
