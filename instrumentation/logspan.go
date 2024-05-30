@@ -14,13 +14,35 @@ import (
 	zerologger "github.com/weka/go-weka-observability/logger"
 )
 
+// Verbosity level constants for logr.Logger.V() method.
+//
+// IMPORTANT: Verbosity levels only affect logr.Info() calls, NOT logr.Error() calls.
+// Error logs are ALWAYS logged regardless of verbosity level.
+//
+// These constants map to zerolog levels via the formula: zerologLevel = 1 - logrV
+// The practical maximum for zerologr is V(2) since zerolog only has 3 main levels.
+const (
+	// VerbosityLevelInfo corresponds to zerolog.InfoLevel (logr.V(0) or logr.Info())
+	// Default verbosity level - always logged unless verbosity is set lower than 0
+	// Used for standard informational messages (Warn also uses this level)
+	VerbosityLevelInfo = 0
+
+	// VerbosityLevelDebug corresponds to zerolog.DebugLevel (logr.V(1))
+	// Used for general debug information that can be filtered out in production
+	VerbosityLevelDebug = 1
+
+	// VerbosityLevelTrace corresponds to zerolog.TraceLevel (logr.V(2))
+	// Used for detailed operation lifecycle tracing (span start/end, operation calls)
+	// Most verbose level supported by zerologr
+	VerbosityLevelTrace = 2
+)
+
 func init() {
 	// default global settings
 	zerologr.VerbosityFieldName = ""
 	zerologr.NameSeparator = "."
 }
 
-type ContextLoggerKey struct{}
 type ContextValuesKey struct{}
 
 // SpanLogger is an abstract object that can be used instead of regular loggers and spans
@@ -43,15 +65,26 @@ func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 	return zerologr.New(initLogger)
 }
 
+// Deprecated: Use logger.CreateLoggerFrom + logger.ContextWithLogr instead.
+// This function has confusing triple behavior based on nil pointer checks:
+//   - If baseLogger is nil and logger exists in context → reuses context logger
+//   - If baseLogger is nil and no logger in context → creates new logger
+//   - If baseLogger is not nil → uses provided logger
+//
+// Migration examples:
+//
+//	Old: ctx, logger := GetLoggerForContext(ctx, nil, "name", "key", "value")
+//	New: logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverride())
+//	     ctx = logger.ContextWithLogr(ctx, logr)
+//	     logger := logger.MustLogrFromContext(ctx).WithName("name").WithValues("key", "value")
+//
+//	Old: ctx, logger := GetLoggerForContext(ctx, &existingLogger, "name")
+//	New: ctx = logger.ContextWithLogr(ctx, existingLogger)
+//	     logger := logger.MustLogrFromContext(ctx).WithName("name")
 func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name string, keysAndValues ...any) (context.Context, logr.Logger) {
 	var logger logr.Logger
 	if baseLogger == nil {
-		if ctx.Value(ContextLoggerKey{}) != nil {
-			logger = ctx.Value(ContextLoggerKey{}).(logr.Logger)
-		} else {
-			initLogger := zerologger.NewZeroLogger()
-			logger = zerologr.New(initLogger)
-		}
+		logger = zerologger.LogrFromContextOrDefault(ctx)
 	} else {
 		logger = *baseLogger
 	}
@@ -60,7 +93,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 	if name != "" {
 		logger = logger.WithName(name)
 	}
-	retCtx := context.WithValue(ctx, ContextLoggerKey{}, logger)
+	retCtx := zerologger.ContextWithLogr(ctx, logger)
 	return retCtx, logger
 }
 
@@ -201,37 +234,83 @@ func (ls *SpanLogger) SetValues(keysAndValues ...any) {
 	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 }
 
-func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger, func()) {
+// validateGetLogSpanArgs ensures arguments are valid for GetLogSpan.
+func validateGetLogSpanArgs(name string, keysAndValues []any) {
 	if name == "" && len(keysAndValues) > 0 {
 		panic("GetLogSpan must be called with no key/value pairs if name is empty")
 	}
 	if len(keysAndValues)%2 != 0 {
 		panic("WithValues must be called with an even number of arguments")
 	}
+}
 
-	ctx, logger := GetLoggerForContext(ctx, nil, name, keysAndValues...)
-	ctx, span := GetSpanForContext(ctx, name, keysAndValues...)
+// getOrCreateLogger retrieves logger from context or creates a default one.
+func getOrCreateLogger(ctx context.Context) logr.Logger {
+	return zerologger.LogrFromContextOrDefault(ctx)
+}
 
-	if span != nil {
-		traceID := span.SpanContext().TraceID()
-		spanID := span.SpanContext().SpanID()
-		if traceID.IsValid() && spanID.IsValid() {
-			logger = logger.WithValues("trace_id", traceID.String(), "span_id", spanID.String())
-		}
+// enrichLogger adds name and key-value pairs to the logger.
+func enrichLogger(logger logr.Logger, name string, keysAndValues []any) logr.Logger {
+	if len(keysAndValues) > 0 {
+		logger = logger.WithValues(keysAndValues...)
+	}
+	if name != "" {
+		logger = logger.WithName(name)
+	}
+	return logger
+}
+
+// addTraceIDsIfValid adds trace and span IDs to logger if span is valid.
+func addTraceIDsIfValid(logger logr.Logger, span trace.Span) logr.Logger {
+	if span == nil {
+		return logger
 	}
 
-	ShutdownFunc := func() {
+	traceID := span.SpanContext().TraceID()
+	spanID := span.SpanContext().SpanID()
+	if traceID.IsValid() && spanID.IsValid() {
+		logger = logger.WithValues("trace_id", traceID.String(), "span_id", spanID.String())
+	}
+	return logger
+}
+
+// createSpanShutdownFunc creates a shutdown function for the span.
+func createSpanShutdownFunc(span trace.Span, logger logr.Logger, name string) func() {
+	return func() {
 		if span != nil && name != "" {
 			span.End()
-			logger.V(2).Info("span finished", "name", name)
+			logger.V(VerbosityLevelTrace).Info("span finished", "name", name)
 		}
 	}
+}
 
-	ls := SpanLogger{
+// newSpanLogger creates a SpanLogger from logger and span.
+func newSpanLogger(logger logr.Logger, span trace.Span) *SpanLogger {
+	return &SpanLogger{
 		Logger: logger,
 		Span:   span,
 	}
-	// logr.V(2) is equivalent to zerolog.TraceLevel
-	logger.V(2).Info(fmt.Sprintf("%s called", name))
-	return ctx, &ls, ShutdownFunc
+}
+
+// logOperationStart logs that an operation has been called.
+func logOperationStart(logger logr.Logger, name string) {
+	logger.V(VerbosityLevelTrace).Info(name + " called")
+}
+
+// GetLogSpan creates or reuses a logger from context and creates a span for an operation.
+// Returns context with logger, a SpanLogger combining logger and span, and a cleanup function.
+func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger, func()) {
+	validateGetLogSpanArgs(name, keysAndValues)
+
+	logger := getOrCreateLogger(ctx)
+	logger = enrichLogger(logger, name, keysAndValues)
+	ctx = zerologger.ContextWithLogr(ctx, logger)
+
+	ctx, span := GetSpanForContext(ctx, name, keysAndValues...)
+	logger = addTraceIDsIfValid(logger, span)
+
+	shutdownFunc := createSpanShutdownFunc(span, logger, name)
+
+	logOperationStart(logger, name)
+	return ctx, newSpanLogger(logger, span), shutdownFunc
 }

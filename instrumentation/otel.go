@@ -29,7 +29,7 @@ var (
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 // Additional resource attributes can be provided as key-value pairs.
 func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
-	logger.V(1).WithCallDepth(1).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
+	logger.V(VerbosityLevelDebug).WithCallDepth(1).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 	Tracer = otel.Tracer(serviceName)
 
 	if otlpEndpoint == "" {
