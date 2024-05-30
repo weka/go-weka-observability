@@ -1,0 +1,847 @@
+# Logger Configuration Architecture
+
+## Overview
+
+The `logger` package provides a production-ready logging system built on [zerolog](https://github.com/rs/zerolog) with automatic log rotation, flexible configuration, and environment-based overrides. It supports both console-based logging (for containerized services) and file-based logging (for traditional applications) with intelligent defaults and validation.
+
+**Key Features:**
+- Type-safe configuration with validation
+- Environment variable overrides for 12-factor app compliance
+- Automatic log rotation via [lumberjack](https://github.com/natefinch/lumberjack)
+- Separate files for info and error logs
+- Zero-allocation structured JSON logging
+- Production-ready with fallback mechanisms
+
+---
+
+## Quick Start
+
+### Console Logging (Default)
+
+```go
+import "github.com/weka/go-weka-observability/logger"
+
+func main() {
+    log := logger.NewZeroLogger()
+    log.Info().Msg("Application started")
+}
+```
+
+**Output to stderr:**
+```json
+{"level":"info","time":"2025-09-30T12:00:00Z","caller":"main.go:5","message":"Application started"}
+```
+
+### File Logging with Custom Configuration
+
+```go
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/var/log/myapp",
+    LogFileName: "myapp.log",
+    MaxLogSize:  100,  // MB
+    MaxLogFiles: 5,    // backups
+    MaxAge:      28,   // days
+}
+
+log := logger.NewZeroLoggerWithConfig(config)
+log.Info().Msg("Processing request")
+log.Error().Msg("Something failed")
+```
+
+**Files created:**
+```
+/var/log/myapp/
+├── myapp.log       # Info, debug, trace logs
+└── myapp-error.log # Warn, error, fatal logs
+```
+
+---
+
+## Architecture
+
+### Design Principles
+
+1. **Explicit over Implicit** - No magic defaults, all configuration is visible
+2. **Environment-Driven** - Support 12-factor app configuration
+3. **Fail-Safe** - Validation with warnings, never crashes
+4. **Zero-Allocation** - Built on zerolog for high performance
+5. **Production-Ready** - Automatic rotation, compression, retention
+
+### Component Diagram
+
+```
+Application
+    ↓
+LogConfig (Configuration)
+    ↓
+NewZeroLoggerWithConfig() (Factory)
+    ↓
+Validation Layer (slog warnings + fallbacks)
+    ↓
+Multi-Level Writer (info vs error separation)
+    ↓
+    ├─→ Console Writer (stderr)
+    └─→ File Writer (lumberjack rotation)
+```
+
+### Log Flow
+
+```
+Application Code
+    ↓
+log.Info().Msg("message")
+    ↓
+zerolog.Logger (level filtering)
+    ↓
+Multi-Level Writer (route by level)
+    ↓
+    ├─→ Info Writer → myapp.log
+    └─→ Error Writer → myapp-error.log
+```
+
+---
+
+## Core Concepts
+
+### OutputMode
+
+Determines where logs are written:
+
+```go
+type OutputMode string
+
+const (
+    ConsoleMode OutputMode = "console"  // Logs to stderr
+    FileMode    OutputMode = "file"     // Logs to rotating files
+)
+```
+
+**When to use:**
+- **ConsoleMode**: Docker containers, Kubernetes pods, systemd services, local development
+- **FileMode**: Traditional daemons, CLI tools, legacy applications
+
+### LogConfig
+
+Complete configuration for logger behavior:
+
+```go
+type LogConfig struct {
+    OutputMode  OutputMode  // Where logs go
+    LogDir      string      // Directory for files (FileMode)
+    LogFileName string      // Base filename (FileMode)
+    MaxLogSize  int         // MB before rotation
+    MaxLogFiles int         // Number of backups
+    MaxAge      int         // Days to retain
+}
+```
+
+**Default values** (from `DefaultLogConfig()`):
+- `OutputMode`: `ConsoleMode` (cloud-native default)
+- `LogDir`: `/var/log`
+- `LogFileName`: `""` (empty - must set for FileMode)
+- `MaxLogSize`: `100` MB
+- `MaxLogFiles`: `5` backups
+- `MaxAge`: `28` days
+
+### Multi-Level Writer
+
+Logs are automatically separated by severity:
+
+**Info File** (`myapp.log`):
+- Trace
+- Debug
+- Info
+
+**Error File** (`myapp-error.log`):
+- Warn
+- Error
+- Fatal
+- Panic
+
+**Rationale**: Faster incident response - error logs are isolated from debug noise.
+
+---
+
+## Configuration Patterns
+
+### Pattern 1: Use Defaults
+
+**Use Case:** Simple applications, local development
+
+```go
+log := logger.NewZeroLogger()
+// Logs to console with default settings
+```
+
+### Pattern 2: Explicit Configuration
+
+**Use Case:** Full control over logging behavior
+
+```go
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/var/log/myapp",
+    LogFileName: "service.log",
+    MaxLogSize:  50,
+    MaxLogFiles: 10,
+    MaxAge:      7,
+}
+
+log := logger.NewZeroLoggerWithConfig(config)
+```
+
+### Pattern 3: Custom Defaults + Environment Overrides
+
+**Use Case:** Production applications with per-environment configuration
+
+```go
+// Define sensible application defaults
+appDefaults := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/app/logs",
+    LogFileName: "service.log",
+    MaxLogSize:  100,
+    MaxLogFiles: 5,
+    MaxAge:      14,
+}
+
+// Allow environment to override
+config := logger.NewLogConfigFromEnv(appDefaults)
+log := logger.NewZeroLoggerWithConfig(config)
+```
+
+**Deployment:**
+
+```bash
+# Production: use defaults
+./myapp
+
+# Staging: smaller files, shorter retention
+LOG_MAX_SIZE_MB=50 LOG_MAX_AGE_DAYS=7 ./myapp
+
+# Development: different directory
+LOG_DIR=/tmp/dev-logs ./myapp
+```
+
+**Key Feature:** Only environment variables that are **actually set** override defaults. All other fields preserve your custom values.
+
+### Pattern 4: Environment-Only (12-Factor App)
+
+**Use Case:** Cloud-native applications, containers
+
+```go
+config := logger.NewDefaultConfigWithEnvOverride()
+log := logger.NewZeroLoggerWithConfig(config)
+```
+
+**Kubernetes ConfigMap:**
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-logging
+data:
+  LOG_MODE: "file"
+  LOG_DIR: "/var/log/app"
+  LOG_FILE_NAME: "production.log"
+  LOG_MAX_SIZE_MB: "100"
+  LOG_MAX_FILES: "10"
+  LOG_MAX_AGE_DAYS: "30"
+```
+
+---
+
+## Environment Variables
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `LOG_MODE` | Output mode | `console` | `file` |
+| `LOG_DIR` | Log directory | `/var/log` | `/app/logs` |
+| `LOG_FILE_NAME` | Log filename | `""` | `service.log` |
+| `LOG_MAX_SIZE_MB` | Max file size (MB) | `100` | `50` |
+| `LOG_MAX_FILES` | Max backups | `5` | `10` |
+| `LOG_MAX_AGE_DAYS` | Retention (days) | `28` | `7` |
+| `LOG_LEVEL` | Log level (0-5) | `1` (info) | `0` (trace) |
+| `LOG_FORMAT` | Format (`raw`/`json`/`plain`) | `json` | `raw` |
+| `LOG_TIME_ONLY` | Use time-only format | `false` | `true` |
+
+**Log Levels:**
+- `-1` = Trace (everything)
+- `0` = Debug
+- `1` = Info (default)
+- `2` = Warn
+- `3` = Error
+- `4` = Fatal
+
+---
+
+## API Reference
+
+### Configuration Functions
+
+#### `DefaultLogConfig() LogConfig`
+
+Returns default configuration for console logging.
+
+```go
+config := logger.DefaultLogConfig()
+// OutputMode: ConsoleMode
+// LogFileName: "" (empty)
+```
+
+#### `NewLogConfigFromEnv(defaultConfig LogConfig) LogConfig`
+
+Merges custom defaults with environment overrides. **Only set environment variables override defaults.**
+
+```go
+custom := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/my/logs",
+    LogFileName: "app.log",
+    MaxLogSize:  200,
+}
+
+os.Setenv("LOG_MAX_SIZE_MB", "50")
+
+config := logger.NewLogConfigFromEnv(custom)
+// Result:
+// - MaxLogSize: 50 (from env)
+// - LogDir: "/my/logs" (from custom)
+// - LogFileName: "app.log" (from custom)
+```
+
+#### `NewDefaultConfigWithEnvOverride() LogConfig`
+
+Convenience function for: `NewLogConfigFromEnv(DefaultLogConfig())`
+
+```go
+config := logger.NewDefaultConfigWithEnvOverride()
+```
+
+### Logger Creation
+
+#### `NewZeroLogger() *zerolog.Logger`
+
+Creates logger with environment configuration.
+
+```go
+log := logger.NewZeroLogger()
+log.Info().Msg("Ready")
+```
+
+#### `NewZeroLoggerWithConfig(config LogConfig) *zerolog.Logger`
+
+Creates logger with explicit configuration.
+
+```go
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/var/log",
+    LogFileName: "app.log",
+    MaxLogSize:  100,
+    MaxLogFiles: 5,
+    MaxAge:      28,
+}
+
+log := logger.NewZeroLoggerWithConfig(config)
+```
+
+#### `NewNamedLogger(serviceName string) *Logger`
+
+Creates logger with service name field.
+
+```go
+log := logger.NewNamedLogger("http-server")
+log.Info().Msg("Started")
+// {"service":"http-server","level":"info",...}
+```
+
+---
+
+## Validation & Safety
+
+### Automatic Fallbacks
+
+The logger **never crashes** due to misconfiguration. Instead, it emits warnings via `slog` and uses safe fallbacks.
+
+#### Missing LogFileName (FileMode)
+
+**Configuration:**
+```go
+config := logger.DefaultLogConfig()
+config.OutputMode = logger.FileMode
+// Forgot to set LogFileName!
+```
+
+**Behavior:**
+```
+2025/09/30 12:00:00 WARN FileMode requires LogFileName, using fallback
+    fallback=app.log
+    suggestion="set LogFileName explicitly in your config"
+```
+
+**Result:** Logs written to `/var/log/app.log`
+
+#### Missing LogDir (FileMode)
+
+**Configuration:**
+```go
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogFileName: "test.log",
+    // LogDir is empty
+}
+```
+
+**Behavior:**
+```
+2025/09/30 12:00:00 WARN FileMode requires LogDir, using fallback
+    fallback=/tmp
+    suggestion="set LogDir explicitly in your config"
+```
+
+**Result:** Logs written to `/tmp/test.log`
+
+#### Correct Configuration (No Warnings)
+
+```go
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/var/log/myapp",
+    LogFileName: "myapp.log",
+    MaxLogSize:  100,
+    MaxLogFiles: 5,
+    MaxAge:      28,
+}
+
+log := logger.NewZeroLoggerWithConfig(config)
+// No warnings - configuration is complete
+```
+
+---
+
+## Log Rotation
+
+### How It Works
+
+Powered by [lumberjack](https://github.com/natefinch/lumberjack):
+
+1. **Size-Based Rotation**: When `myapp.log` reaches `MaxLogSize` MB, it's renamed to `myapp-2025-09-30T12-00-00.000.log`
+2. **Compression**: Old logs are gzipped: `myapp-2025-09-30T12-00-00.000.gz`
+3. **Backup Management**: Keep only `MaxLogFiles` backups
+4. **Age-Based Cleanup**: Delete logs older than `MaxAge` days
+
+### File Naming Convention
+
+**Active logs:**
+```
+myapp.log        # Current info logs
+myapp-error.log  # Current error logs
+```
+
+**Rotated logs:**
+```
+myapp-2025-09-30T12-00-00.000.gz       # Yesterday's info
+myapp-error-2025-09-30T12-00-00.000.gz # Yesterday's errors
+myapp-2025-09-29T12-00-00.000.gz       # 2 days ago
+```
+
+**Example timeline:**
+```
+/var/log/myapp/
+├── myapp.log (80MB)              # Active, still growing
+├── myapp-error.log (5MB)         # Active
+├── myapp-2025-09-30.gz (100MB)   # Rotated today
+├── myapp-2025-09-29.gz (100MB)   # Yesterday
+├── myapp-2025-09-28.gz (100MB)   # 2 days ago
+├── myapp-2025-09-27.gz (100MB)   # 3 days ago
+└── myapp-2025-09-26.gz (100MB)   # 4 days ago (oldest backup)
+```
+
+### Configuration Examples
+
+**High-frequency application:**
+```go
+config.MaxLogSize = 50   // Rotate more often
+config.MaxLogFiles = 20  // Keep more history
+config.MaxAge = 7        // Delete after 1 week
+```
+
+**Low-frequency application:**
+```go
+config.MaxLogSize = 500  // Larger files
+config.MaxLogFiles = 3   // Fewer backups
+config.MaxAge = 90       // Keep for 3 months
+```
+
+---
+
+## Use Cases
+
+### Use Case 1: Microservice in Kubernetes
+
+**Requirements:**
+- Logs to stderr (collected by Kubernetes)
+- JSON format for parsing
+- Environment-driven configuration
+
+**Implementation:**
+```go
+log := logger.NewZeroLogger()
+log.Info().
+    Str("request_id", requestID).
+    Str("endpoint", "/api/users").
+    Int("status_code", 200).
+    Msg("Request completed")
+```
+
+**Kubernetes logs:**
+```bash
+kubectl logs pod-name
+{"level":"info","request_id":"abc123","endpoint":"/api/users",...}
+```
+
+### Use Case 2: Traditional Daemon
+
+**Requirements:**
+- Logs to files in /var/log
+- Automatic rotation
+- Separate error logs for monitoring
+
+**Implementation:**
+```go
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/var/log/mydaemon",
+    LogFileName: "daemon.log",
+    MaxLogSize:  100,
+    MaxLogFiles: 10,
+    MaxAge:      30,
+}
+
+log := logger.NewZeroLoggerWithConfig(config)
+```
+
+**Monitoring:**
+```bash
+tail -f /var/log/mydaemon/daemon-error.log  # Watch errors only
+```
+
+### Use Case 3: CLI Tool
+
+**Requirements:**
+- Logs to files (keep console clean)
+- Small log files
+- Short retention
+
+**Implementation:**
+```go
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      os.TempDir(),
+    LogFileName: "cli-tool.log",
+    MaxLogSize:  10,  // 10MB
+    MaxLogFiles: 2,
+    MaxAge:      1,   // 1 day
+}
+
+log := logger.NewZeroLoggerWithConfig(config)
+```
+
+### Use Case 4: Multi-Environment Application
+
+**Requirements:**
+- Different config per environment
+- Override via environment variables
+- Sane defaults for development
+
+**Implementation:**
+```go
+appDefaults := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/app/logs",
+    LogFileName: "app.log",
+    MaxLogSize:  100,
+    MaxLogFiles: 5,
+    MaxAge:      14,
+}
+
+config := logger.NewLogConfigFromEnv(appDefaults)
+log := logger.NewZeroLoggerWithConfig(config)
+```
+
+**Environments:**
+
+```bash
+# Development
+LOG_DIR=/tmp/dev-logs LOG_LEVEL=0 ./app
+
+# Staging
+LOG_MAX_SIZE_MB=50 LOG_MAX_AGE_DAYS=7 ./app
+
+# Production
+# Uses appDefaults as-is
+./app
+```
+
+### Use Case 5: Per-Module Loggers
+
+**Requirements:**
+- Separate log files per module
+- Shared configuration (size, rotation)
+
+**Implementation:**
+```go
+baseConfig := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/var/log/myapp",
+    MaxLogSize:  100,
+    MaxLogFiles: 5,
+    MaxAge:      28,
+}
+
+// HTTP module
+httpConfig := baseConfig
+httpConfig.LogFileName = "http.log"
+httpLog := logger.NewZeroLoggerWithConfig(httpConfig)
+
+// Database module
+dbConfig := baseConfig
+dbConfig.LogFileName = "database.log"
+dbLog := logger.NewZeroLoggerWithConfig(dbConfig)
+
+// Queue module
+queueConfig := baseConfig
+queueConfig.LogFileName = "queue.log"
+queueLog := logger.NewZeroLoggerWithConfig(queueConfig)
+```
+
+**Result:**
+```
+/var/log/myapp/
+├── http.log
+├── http-error.log
+├── database.log
+├── database-error.log
+├── queue.log
+└── queue-error.log
+```
+
+---
+
+## Performance
+
+### Zero-Allocation Logging
+
+Built on [zerolog](https://github.com/rs/zerolog), which uses zero-allocation JSON encoding:
+
+```go
+log.Info().
+    Str("key", "value").   // No allocation
+    Int("count", 42).      // No allocation
+    Msg("event")           // No allocation
+```
+
+**Performance:**
+- Zero allocations per log call (when properly used)
+- Significantly faster than reflection-based loggers (logrus, stdlib)
+- For detailed benchmarks, see [Go Logging Benchmarks](https://betterstack-community.github.io/go-logging-benchmarks/)
+
+### Buffered Writes
+
+Lumberjack buffers writes for efficiency:
+- Reduces syscalls
+- Improves throughput
+- Minimal latency impact
+
+### Level-Based Routing
+
+Separate writers avoid filtering overhead:
+- Info logs → info writer (no level check)
+- Error logs → error writer (no level check)
+
+---
+
+## Testing
+
+### Testing with Temporary Directories
+
+```go
+func TestLogging(t *testing.T) {
+    config := logger.LogConfig{
+        OutputMode:  logger.FileMode,
+        LogDir:      t.TempDir(), // Auto-cleanup
+        LogFileName: "test.log",
+        MaxLogSize:  10,
+        MaxLogFiles: 2,
+        MaxAge:      1,
+    }
+
+    log := logger.NewZeroLoggerWithConfig(config)
+    log.Info().Msg("test message")
+
+    // Verify log file
+    logPath := filepath.Join(config.LogDir, "test.log")
+    content, err := os.ReadFile(logPath)
+    require.NoError(t, err)
+    assert.Contains(t, string(content), "test message")
+}
+```
+
+### Testing with In-Memory Buffer
+
+```go
+func TestLogContent(t *testing.T) {
+    var buf bytes.Buffer
+
+    log := zerolog.New(&buf).With().Timestamp().Logger()
+    log.Info().Str("key", "value").Msg("test")
+
+    assert.Contains(t, buf.String(), `"key":"value"`)
+    assert.Contains(t, buf.String(), `"message":"test"`)
+}
+```
+
+---
+
+## Best Practices
+
+### 1. Always Set LogFileName for FileMode
+
+```go
+// ✅ Good
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogFileName: "myapp.log", // Explicit
+    LogDir:      "/var/log",
+}
+
+// ❌ Bad - relies on fallback warning
+config := logger.LogConfig{
+    OutputMode:  logger.FileMode,
+    LogDir:      "/var/log",
+    // Missing LogFileName
+}
+```
+
+### 2. Use Environment Variables for Deployment Configuration
+
+```go
+// ✅ Good - configurable per environment
+appDefaults := logger.LogConfig{...}
+config := logger.NewLogConfigFromEnv(appDefaults)
+
+// ❌ Bad - hardcoded
+config := logger.LogConfig{
+    LogDir: "/var/log", // Fixed, can't override
+}
+```
+
+### 3. Use ConsoleMode for Containers
+
+```go
+// ✅ Good for Docker/Kubernetes
+log := logger.NewZeroLogger() // Default ConsoleMode
+
+// ❌ Bad for containers
+config.OutputMode = logger.FileMode // Files in container
+```
+
+### 4. Separate Logs by Module/Service
+
+```go
+// ✅ Good - easy to debug
+httpLog := logger.NewZeroLoggerWithConfig(httpConfig)
+dbLog := logger.NewZeroLoggerWithConfig(dbConfig)
+
+// ❌ Bad - mixed concerns
+log := logger.NewZeroLogger() // Everything in one file
+```
+
+### 5. Configure Retention Based on Disk Space
+
+```go
+// ✅ Good - calculate based on disk
+// Disk: 100GB, allow 10GB for logs
+// Each file: 100MB, keep 100 files
+config.MaxLogSize = 100
+config.MaxLogFiles = 100
+
+// ❌ Bad - unlimited growth
+config.MaxLogFiles = 999
+config.MaxAge = 999
+```
+
+---
+
+## Troubleshooting
+
+### Logs Not Appearing
+
+**Symptoms:** No log files created
+
+**Check:**
+1. Is `LogFileName` set for FileMode?
+2. Does `LogDir` exist and is it writable?
+3. Is log level filtering messages? (Set `LOG_LEVEL=-1` to see everything)
+4. Check stderr for validation warnings
+
+### Permission Errors
+
+**Error:**
+```
+zerolog: could not write event: can't open new logfile: open /var/log/app.log: permission denied
+```
+
+**Solutions:**
+```go
+// Option 1: Use writable directory
+config.LogDir = "/tmp"
+
+// Option 2: Run with permissions
+sudo ./app
+
+// Option 3: Create directory first
+mkdir -p /var/log/myapp
+chmod 755 /var/log/myapp
+```
+
+### Disk Space Exhaustion
+
+**Symptoms:** Disk full, logs growing indefinitely
+
+**Solutions:**
+```go
+// Reduce log size
+config.MaxLogSize = 50  // 50MB instead of 100MB
+
+// Reduce retention
+config.MaxLogFiles = 5  // 5 backups instead of 10
+config.MaxAge = 7       // 7 days instead of 28
+```
+
+### Missing Error Logs
+
+**Symptoms:** Info logs work, error logs missing
+
+**Check:**
+1. Log level - are you logging below threshold?
+2. File permissions on `{filename}-error.log`
+3. Disk space - error file might be full
+
+---
+
+## Summary
+
+The logger configuration architecture provides:
+
+✅ **Flexible Configuration** - Console or file-based logging
+✅ **Environment Overrides** - 12-factor app compliance
+✅ **Production-Ready** - Automatic rotation, compression, retention
+✅ **Type-Safe** - `OutputMode` enum prevents errors
+✅ **Fail-Safe** - Validation with warnings, never crashes
+✅ **High Performance** - Zero-allocation structured logging
+✅ **Multi-Level** - Separate info and error logs
+
+For detailed examples, see the test suite in `logger/logger_test.go`.
