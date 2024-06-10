@@ -103,10 +103,21 @@ func (ls *SpanLogger) Printf(msg string, args ...any) {
 	ls.WithCallDepth(1).Info(fmt.Sprintf(msg, args...))
 }
 
+func (ls *SpanLogger) Errorf(msg string, args ...any) {
+	ls.WithCallDepth(1).Error(fmt.Errorf(msg, args...), "")
+}
+
 func (ls *SpanLogger) InfoWithStatus(code codes.Code, msg string, keysAnValues ...any) {
 	ls.WithCallDepth(1).Info(msg, keysAnValues...)
 	ls.SetAttributes(getAttributesFromKeysAndValues(keysAnValues...)...)
 	ls.SetStatus(code, msg)
+}
+
+func (ls *SpanLogger) Warn(msg string, keysAndValues ...any) {
+	keysAndValues = append(keysAndValues, "level", "warn")
+	ls.Logger.WithCallDepth(1).Info(msg, keysAndValues...)
+	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
+	ls.AddEvent(msg)
 }
 
 func (ls *SpanLogger) Error(err error, msg string, keysAndValues ...any) {
