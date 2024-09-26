@@ -67,13 +67,19 @@ func GetMultiLevelWriter() io.Writer {
 	var stdErrWriter io.Writer
 
 	logFormat := os.Getenv("LOG_FORMAT")
+	timeOnly := os.Getenv("LOG_TIME_ONLY")
+	timeFormat := time.RFC3339
 
-	if logFormat != "raw" {
+	if timeOnly == "true" {
+		timeFormat = time.TimeOnly
+	}
+
+	if logFormat == "json" {
 		stdOutWriter = os.Stdout
 		stdErrWriter = os.Stderr
 	} else {
-		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat}
+		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat}
 	}
 
 	writer := zerolog.MultiLevelWriter(
@@ -103,13 +109,13 @@ func GetLogLevel() zerolog.Level {
 }
 
 func NewLogger() *Logger {
-	log := zerolog.New(GetMultiLevelWriter()).
-		Level(GetLogLevel()).
-		With().
-		Timestamp().
-		Caller().
-		Logger()
-	return &Logger{&log}
+	log := NewZeroLogger()
+	return &Logger{log}
+}
+
+func NewLoggerWithoutCaller() *Logger {
+	log := NewZeroLoggerWithoutCaller()
+	return &Logger{log}
 }
 
 func NewZeroLogger() *zerolog.Logger {
@@ -118,6 +124,15 @@ func NewZeroLogger() *zerolog.Logger {
 		With().
 		Timestamp().
 		Caller().
+		Logger()
+	return &log
+}
+
+func NewZeroLoggerWithoutCaller() *zerolog.Logger {
+	log := zerolog.New(GetMultiLevelWriter()).
+		Level(GetLogLevel()).
+		With().
+		Timestamp().
 		Logger()
 	return &log
 }
