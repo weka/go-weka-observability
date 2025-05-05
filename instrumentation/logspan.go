@@ -129,6 +129,7 @@ func (ls *SpanLogger) Errorf(msg string, args ...any) {
 func (ls *SpanLogger) InfoWithStatus(code codes.Code, msg string, keysAnValues ...any) {
 	ls.WithCallDepth(1).Info(msg, keysAnValues...)
 	ls.SetAttributes(getAttributesFromKeysAndValues(keysAnValues...)...)
+	ls.AddEvent(msg)
 	ls.SetStatus(code, msg)
 }
 
