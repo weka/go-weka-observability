@@ -77,6 +77,10 @@ func GetMultiLevelWriter() io.Writer {
 	if logFormat == "json" {
 		stdOutWriter = os.Stdout
 		stdErrWriter = os.Stderr
+	} else if logFormat == "plain" {
+		// no colors for plain text
+		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat, NoColor: true}
+		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat, NoColor: true}
 	} else {
 		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat}
 		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat}
