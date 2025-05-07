@@ -73,7 +73,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 
 func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (context.Context, trace.Span) {
 	if isDisabled(ctx) {
-		noopSpan := trace.SpanFromContext(context.Background())
+		noopSpan := trace.SpanFromContext(nil)
 		return trace.ContextWithSpan(ctx, noopSpan), noopSpan
 	}
 	if Tracer == nil {
