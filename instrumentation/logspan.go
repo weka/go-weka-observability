@@ -22,6 +22,7 @@ func init() {
 
 type ContextLoggerKey struct{}
 type ContextValuesKey struct{}
+type contextDisabledKey struct{}
 
 // SpanLogger is an abstract object that can be used instead of regular loggers and spans
 type SpanLogger struct {
@@ -60,11 +61,20 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 	if name != "" {
 		logger = logger.WithName(name)
 	}
+
+	if isDisabled(ctx) {
+		// use trace level for disabled logger just to be able to see it in some rare cases
+		logger = logger.V(2)
+	}
+
 	retCtx := context.WithValue(ctx, ContextLoggerKey{}, logger)
 	return retCtx, logger
 }
 
 func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (context.Context, trace.Span) {
+	if isDisabled(ctx) {
+		return ctx, nil
+	}
 	if Tracer == nil {
 		panic("Tracer is not initialized. Call SetupOTelSDK first")
 	}
@@ -205,4 +215,19 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 	// logr.V(2) is equivalent to zerolog.TraceLevel
 	logger.V(2).Info(fmt.Sprintf("%s called", name))
 	return ctx, &ls, ShutdownFunc
+}
+
+// WithDisabled returns a context with the disabled key set to true, which disables logging and tracing for this context
+// All operations will be no-op
+func WithDisabled(ctx context.Context) context.Context {
+	disabled := true
+	return context.WithValue(ctx, contextDisabledKey{}, &disabled)
+}
+
+func isDisabled(ctx context.Context) bool {
+	disabled, ok := ctx.Value(contextDisabledKey{}).(*bool)
+	if !ok {
+		return false
+	}
+	return *disabled
 }
