@@ -73,7 +73,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 
 func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (context.Context, trace.Span) {
 	if isDisabled(ctx) {
-		return ctx, nil
+		return ctx, trace.SpanFromContext(context.Background())
 	}
 	if Tracer == nil {
 		panic("Tracer is not initialized. Call SetupOTelSDK first")
