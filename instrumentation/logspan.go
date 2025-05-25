@@ -194,7 +194,7 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 	ShutdownFunc := func() {
 		if span != nil && name != "" {
 			span.End()
-			logger.V(2).Info("span finished", "name", name)
+			logger.V(1).Info("span finished", "name", name)
 		}
 	}
 
@@ -203,6 +203,6 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 		Span:   span,
 	}
 	// logr.V(2) is equivalent to zerolog.TraceLevel
-	logger.V(2).Info(fmt.Sprintf("%s called", name))
+	logger.V(1).Info(fmt.Sprintf("%s called", name))
 	return ctx, &ls, ShutdownFunc
 }
