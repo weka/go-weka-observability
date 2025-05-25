@@ -8,3 +8,4 @@
 /.env.*
 /.vscode
 .DS_Store
+.aider*
