@@ -2,7 +2,6 @@ package instrumentation
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"time"
@@ -18,28 +17,19 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-var (
-	Tracer trace.Tracer
-
-	otlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-)
+var otlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
-func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger) (shutdown func(context.Context) error, err error) {
-	logger.V(1).WithCallDepth(1).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
-	Tracer = otel.Tracer(serviceName)
-
+func SetupOTelSDK(
+	ctx context.Context, serviceName, serviceVersion string, logger logr.Logger,
+) (shutdown func(context.Context) error, err error) {
 	if otlpEndpoint == "" {
-		return func(ctx context.Context) error {
-			return nil
-		}, nil
+		return func(ctx context.Context) error { return nil }, nil
 	}
 
-	// handleErr calls shutdown for cleanup and makes sure that all errors are returned.
-	handleErr := func(inErr error) {
-		err = errors.Join(inErr, shutdown(ctx))
-	}
+	logger.V(logLevelDebug).WithCallDepth(1).Info("Setting up OTel SDK",
+		"service", serviceName, "version", serviceVersion)
 
 	// Set up propagator.
 	prop := newPropagator()
@@ -48,11 +38,10 @@ func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logge
 	// Set up trace provider.
 	tracerProvider, err := newTraceProvider(ctx, serviceName, serviceVersion, logger)
 	if err != nil {
-		handleErr(err)
-		return shutdown, err
+		return func(ctx context.Context) error { return nil }, err
 	}
-	otel.SetTracerProvider(tracerProvider)
 
+	otel.SetTracerProvider(tracerProvider)
 	return func(ctx context.Context) error {
 		err = tracerProvider.ForceFlush(context.Background())
 		if err != nil {
@@ -113,13 +102,8 @@ func newTraceProvider(ctx context.Context, serviceName, serviceVersion string, l
 	return traceProvider, nil
 }
 
-func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr string) context.Context {
+func NewContextWithTraceID(ctx context.Context, traceIDStr string) context.Context {
 	traceID, _ := trace.TraceIDFromHex(traceIDStr)
-
-	//nolint:ineffassign,staticcheck
-	if tracer == nil {
-		tracer = Tracer
-	}
 
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
@@ -131,14 +115,9 @@ func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr 
 	return ctx
 }
 
-func NewContextWithSpanID(ctx context.Context, tracer trace.Tracer, traceIDStr string, spanIdStr string) context.Context {
+func NewContextWithSpanID(ctx context.Context, traceIDStr string, spanIdStr string) context.Context {
 	traceID, _ := trace.TraceIDFromHex(traceIDStr)
 	spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
-
-	//nolint:ineffassign,staticcheck
-	if tracer == nil {
-		tracer = Tracer
-	}
 
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
@@ -147,6 +126,6 @@ func NewContextWithSpanID(ctx context.Context, tracer trace.Tracer, traceIDStr s
 	})
 
 	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	//retCtx, span := tracer.Start(ctx, spanName)
+
 	return ctx
 }

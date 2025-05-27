@@ -7,11 +7,17 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	zerologger "github.com/weka/go-weka-observability/logger"
+)
+
+const (
+	logLevelDebug = iota + 1
+	logLevelTrace
 )
 
 func init() {
@@ -64,7 +70,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 
 	if isDisabled(ctx) {
 		// use trace level for disabled logger just to be able to see it in some rare cases
-		logger = logger.V(2)
+		logger = logger.V(logLevelDebug)
 	}
 
 	retCtx := context.WithValue(ctx, ContextLoggerKey{}, logger)
@@ -76,9 +82,7 @@ func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (
 		noopSpan := trace.SpanFromContext(context.Background())
 		return trace.ContextWithSpan(ctx, noopSpan), noopSpan
 	}
-	if Tracer == nil {
-		panic("Tracer is not initialized. Call SetupOTelSDK first")
-	}
+
 	if name == "" {
 		if len(keysAndValues) != 0 {
 			panic("When re-using old context it is forbidden to modify span values, as new span is not created")
@@ -86,7 +90,9 @@ func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (
 		span := trace.SpanFromContext(ctx)
 		return ctx, span
 	}
-	ctx, span := Tracer.Start(ctx, name)
+
+	tracer := otel.GetTracerProvider().Tracer(name)
+	ctx, span := tracer.Start(ctx, name)
 	// expand with values saved previously in context
 	if ctx.Value(ContextValuesKey{}) != nil {
 		keysAndValues = append(keysAndValues, ctx.Value(ContextValuesKey{}).([]any)...)
@@ -205,7 +211,7 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 	ShutdownFunc := func() {
 		if span != nil && name != "" {
 			span.End()
-			logger.V(2).Info("span finished", "name", name)
+			logger.V(logLevelDebug).Info("span finished", "name", name)
 		}
 	}
 
@@ -213,12 +219,13 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 		Logger: logger,
 		Span:   span,
 	}
-	// logr.V(2) is equivalent to zerolog.TraceLevel
-	logger.V(2).Info(fmt.Sprintf("%s called", name))
+
+	logger.V(logLevelDebug).Info(fmt.Sprintf("%s called", name))
 	return ctx, &ls, ShutdownFunc
 }
 
-// WithDisabled returns a context with the disabled key set to true, which disables logging and tracing for this context
+// WithDisabled returns a context with the disabled key set to true,
+// which disables logging and tracing for this context. Useful when you need per-request disabled tracing/logging.
 // All operations will be no-op
 func WithDisabled(ctx context.Context) context.Context {
 	disabled := true
