@@ -24,7 +24,6 @@ func init() {
 	logger.SetCallerDirDisplayLevel()
 }
 
-// NOTE: set OTEL_EXPORTER_OTLP_ENDPOINT=https://otelcollector.rnd.weka.io:4317 environment variable before running this test
 func TestLogSpan() {
 	ctx := context.Background()
 
