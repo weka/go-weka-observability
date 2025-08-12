@@ -62,6 +62,26 @@ func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, err
 	return len(p), nil
 }
 
+func GetStderrWriter() io.Writer {
+	logFormat := os.Getenv("LOG_FORMAT")
+	timeOnly := os.Getenv("LOG_TIME_ONLY")
+	timeFormat := time.RFC3339
+
+	if timeOnly == "true" {
+		timeFormat = time.TimeOnly
+	}
+
+	switch logFormat {
+	case "json":
+		return os.Stderr
+	case "plain":
+		// no colors for plain text
+		return zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat, NoColor: true}
+	default:
+		return zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat}
+	}
+}
+
 func GetMultiLevelWriter() io.Writer {
 	var stdOutWriter io.Writer
 	var stdErrWriter io.Writer
@@ -74,14 +94,15 @@ func GetMultiLevelWriter() io.Writer {
 		timeFormat = time.TimeOnly
 	}
 
-	if logFormat == "json" {
+	switch logFormat {
+	case "json":
 		stdOutWriter = os.Stdout
 		stdErrWriter = os.Stderr
-	} else if logFormat == "plain" {
+	case "plain":
 		// no colors for plain text
 		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat, NoColor: true}
 		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat, NoColor: true}
-	} else {
+	default:
 		stdOutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat}
 		stdErrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat}
 	}
@@ -123,7 +144,7 @@ func NewLoggerWithoutCaller() *Logger {
 }
 
 func NewZeroLogger() *zerolog.Logger {
-	log := zerolog.New(GetMultiLevelWriter()).
+	log := zerolog.New(GetStderrWriter()).
 		Level(GetLogLevel()).
 		With().
 		Timestamp().
@@ -133,7 +154,7 @@ func NewZeroLogger() *zerolog.Logger {
 }
 
 func NewZeroLoggerWithoutCaller() *zerolog.Logger {
-	log := zerolog.New(GetMultiLevelWriter()).
+	log := zerolog.New(GetStderrWriter()).
 		Level(GetLogLevel()).
 		With().
 		Timestamp().
@@ -174,7 +195,7 @@ func (l *Logger) FatalErr(err error) {
 }
 
 func NewNamedLogger(serviceName string) *Logger {
-	log := zerolog.New(GetMultiLevelWriter()).
+	log := zerolog.New(GetStderrWriter()).
 		Level(GetLogLevel()).
 		With().
 		Str("service", serviceName).
