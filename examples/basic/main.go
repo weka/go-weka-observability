@@ -1,4 +1,4 @@
-package examples
+package main
 
 import (
 	"context"
@@ -24,14 +24,14 @@ func init() {
 	logger.SetCallerDirDisplayLevel()
 }
 
-func TestLogSpan() {
+func main() {
 	ctx := context.Background()
 
 	// initialize root logger and put it into context
 	logr := zerologr.New(logger.NewZeroLogger())
-	ctx, ctxLogger := instrumentation.GetLoggerForContext(ctx, &logr, "Test")
+	ctx, ctxLogger := instrumentation.GetLoggerForContext(ctx, &logr, "BasicExample")
 
-	shutdown, err := instrumentation.SetupOTelSDK(context.Background(), "test-logspan", "v0.0.1", ctxLogger)
+	shutdown, err := instrumentation.SetupOTelSDK(context.Background(), "basic-logspan-example", "v1.0.0", ctxLogger)
 	if err != nil {
 		panic(err)
 	}
@@ -41,6 +41,7 @@ func TestLogSpan() {
 			panic(err)
 		}
 	}()
+
 	outerFunc(ctx)
 }
 
