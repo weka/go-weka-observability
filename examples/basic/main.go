@@ -28,9 +28,17 @@ func init() {
 func main() {
 	ctx := context.Background()
 
-	rootKeysAndValues := []any{
-		"app", "basic-logspan-example",
-		"test-name", "basic",
+	m := map[string]any{
+		"app":         "basic-logspan-example",
+		"test-name":   "basic",
+		"int-value":   1,
+		"bool-value":  true,
+		"float-value": 30.5,
+	}
+
+	rootKeysAndValues := []any{}
+	for k, v := range m {
+		rootKeysAndValues = append(rootKeysAndValues, k, v)
 	}
 
 	// initialize root logger and put it into context

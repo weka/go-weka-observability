@@ -100,9 +100,38 @@ func getAttributesFromKeysAndValues(keysAndValues ...any) []attribute.KeyValue {
 		if !ok {
 			continue
 		}
-		attrs = append(attrs, attribute.String(k, fmt.Sprint(keysAndValues[i+1])))
+		attrs = append(attrs, attributeFromValue(k, keysAndValues[i+1]))
 	}
 	return attrs
+}
+
+// attributeFromValue creates an OpenTelemetry attribute with proper type handling
+func attributeFromValue(key string, value any) attribute.KeyValue {
+	switch v := value.(type) {
+	case string:
+		return attribute.String(key, v)
+	case int:
+		return attribute.Int(key, v)
+	case int64:
+		return attribute.Int64(key, v)
+	case float64:
+		return attribute.Float64(key, v)
+	case bool:
+		return attribute.Bool(key, v)
+	case []string:
+		return attribute.StringSlice(key, v)
+	case []int:
+		return attribute.IntSlice(key, v)
+	case []int64:
+		return attribute.Int64Slice(key, v)
+	case []float64:
+		return attribute.Float64Slice(key, v)
+	case []bool:
+		return attribute.BoolSlice(key, v)
+	default:
+		// Fallback to string representation for unknown types
+		return attribute.String(key, fmt.Sprint(v))
+	}
 }
 
 func (ls *SpanLogger) Info(msg string, keysAndValues ...any) {
