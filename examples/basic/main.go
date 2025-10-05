@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/go-logr/zerologr"
+
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/go-weka-observability/logger"
 )
@@ -27,11 +28,24 @@ func init() {
 func main() {
 	ctx := context.Background()
 
+	rootKeysAndValues := []any{
+		"app", "basic-logspan-example",
+		"test-name", "basic",
+	}
+
 	// initialize root logger and put it into context
 	logr := zerologr.New(logger.NewZeroLogger())
-	ctx, ctxLogger := instrumentation.GetLoggerForContext(ctx, &logr, "BasicExample")
+	ctx, ctxLogger := instrumentation.GetLoggerForContext(ctx, &logr, "BasicExample", rootKeysAndValues...)
 
-	shutdown, err := instrumentation.SetupOTelSDK(context.Background(), "basic-logspan-example", "v1.0.0", ctxLogger)
+	// Setup OpenTelemetry SDK with custom resource attributes
+	// Resource attributes are metadata attached to all spans from this service
+	shutdown, err := instrumentation.SetupOTelSDK(
+		ctx,
+		"basic-logspan-example",
+		"v1.0.0",
+		ctxLogger,
+		rootKeysAndValues...,
+	)
 	if err != nil {
 		panic(err)
 	}
