@@ -47,8 +47,9 @@ func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, err
 	return len(p), nil
 }
 
-// GetWriterFromFormat creates io.Writer based on format config
-func GetWriterFromFormat(format FormatConfig) io.Writer {
+// GetStderrWriterFromFormat creates stderr io.Writer based on format config.
+// All outputs go to os.Stderr with formatting determined by the FormatConfig.
+func GetStderrWriterFromFormat(format FormatConfig) io.Writer {
 	timeFormat := time.RFC3339
 	if format.TimeOnly {
 		timeFormat = time.TimeOnly
@@ -73,7 +74,7 @@ func GetWriterFromFormat(format FormatConfig) io.Writer {
 	}
 }
 
-// GetStderrWriter is DEPRECATED: Use GetWriterFromFormat instead.
+// GetStderrWriter is DEPRECATED: Use GetStderrWriterFromFormat with FormatConfig instead.
 // This function reads LOG_FORMAT and LOG_TIME_ONLY directly from environment.
 // Migrate to FormatConfig for better testability.
 func GetStderrWriter() io.Writer {
@@ -89,23 +90,66 @@ func GetStderrWriter() io.Writer {
 	if os.Getenv("LOG_TIME_ONLY") == "true" {
 		config.TimeOnly = true
 	}
-	return GetWriterFromFormat(config)
+	return GetStderrWriterFromFormat(config)
 }
 
-// GetMultiLevelWriter is DEPRECATED: Use GetMultiLevelWriterWithConfig instead.
-// This function uses environment variables for configuration.
-// Migrate to explicit Config for better testability.
+// createConsoleMultiLevelWriter creates a multi-level writer for console output
+// with stdout/stderr split based on format configuration
+func createConsoleMultiLevelWriter(format FormatConfig) io.Writer {
+	timeFormat := time.RFC3339
+	if format.TimeOnly {
+		timeFormat = time.TimeOnly
+	}
+
+	var stdoutWriter, stderrWriter io.Writer
+	switch format.Format {
+	case LogFormatJSON:
+		stdoutWriter = os.Stdout
+		stderrWriter = os.Stderr
+	case LogFormatPlain:
+		stdoutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat, NoColor: true}
+		stderrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat, NoColor: true}
+	default: // LogFormatRaw
+		stdoutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat}
+		stderrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat}
+	}
+
+	return createMultiLevelWriter(stdoutWriter, stderrWriter)
+}
+
+// GetMultiLevelWriter is DEPRECATED: Use GetStderrWriter for stderr-only output,
+// or GetMultiLevelWriterWithConfig for file-based logging with level separation.
+//
+// This function maintains backward compatibility by routing logs to stdout/stderr:
+// - Info and below (Trace, Debug, Info) → stdout
+// - Warn and above (Warn, Error, Fatal, Panic) → stderr
+//
+// This behavior exists for backward compatibility but is not recommended for new code.
+// Modern applications should use GetStderrWriter() which routes all logs to stderr.
 func GetMultiLevelWriter() io.Writer {
-	config := NewDefaultConfigWithEnvOverrides()
-	return GetMultiLevelWriterWithConfig(config)
+	// Get format configuration from environment
+	format := DefaultFormatConfig()
+	if formatStr := os.Getenv("LOG_FORMAT"); formatStr != "" {
+		if f, err := ParseLogFormat(formatStr); err != nil {
+			slog.Warn("invalid LOG_FORMAT, using default", "error", err, "default", LogFormatJSON)
+		} else {
+			format.Format = f
+		}
+	}
+	if os.Getenv("LOG_TIME_ONLY") == "true" {
+		format.TimeOnly = true
+	}
+
+	return createConsoleMultiLevelWriter(format)
 }
 
 // GetMultiLevelWriterWithConfig creates writer from complete config
-// In ConsoleMode: returns direct writer (backward compatible with old GetStderrWriter)
-// In FileMode: returns multi-level writer with separate info/error files
+// Both ConsoleMode and FileMode use multi-level writers for level separation:
+// - ConsoleMode: info/debug/trace → stdout, warn/error/fatal/panic → stderr
+// - FileMode: info/debug/trace → info file, warn/error/fatal/panic → error file
 func GetMultiLevelWriterWithConfig(config Config) io.Writer {
-	// Validate FileMode sink configuration
 	if config.Sink.Mode == FileMode {
+		// Validate FileMode sink configuration
 		if config.Sink.FileName == "" {
 			slog.Warn("FileMode requires FileName, using fallback",
 				"fallback", defaultLogFileName)
@@ -124,8 +168,9 @@ func GetMultiLevelWriterWithConfig(config Config) io.Writer {
 		return createMultiLevelWriter(infoWriter, errorWriter)
 	}
 
-	// ConsoleMode: return direct writer (backward compatible)
-	return GetWriterFromFormat(config.Format)
+	// ConsoleMode: use multi-level writer with stdout/stderr split
+	// (same behavior as GetMultiLevelWriter)
+	return createConsoleMultiLevelWriter(config.Format)
 }
 
 // createMultiLevelWriter assembles the multi-level writer with level comparators
