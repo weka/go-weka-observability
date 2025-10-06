@@ -35,13 +35,15 @@ func main() {
 ### File Logging with Custom Configuration
 
 ```go
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log/myapp",
-    LogFileName: "myapp.log",
-    MaxLogSize:  100,  // MB
-    MaxLogFiles: 5,    // backups
-    MaxAge:      28,   // days
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/var/log/myapp",
+        FileName:   "myapp.log",
+        MaxSizeMB:  100,  // MB
+        MaxFiles:   5,    // backups
+        MaxAgeDays: 28,   // days
+    },
 }
 
 log := logger.NewZeroLoggerWithConfig(config)
@@ -73,7 +75,7 @@ log.Error().Msg("Something failed")
 ```
 Application
     ↓
-LogConfig (Configuration)
+Config (Configuration)
     ↓
 NewZeroLoggerWithConfig() (Factory)
     ↓
@@ -121,28 +123,46 @@ const (
 - **ConsoleMode**: Docker containers, Kubernetes pods, systemd services, local development
 - **FileMode**: Traditional daemons, CLI tools, legacy applications
 
-### LogConfig
+### Config
 
 Complete configuration for logger behavior:
 
 ```go
-type LogConfig struct {
-    OutputMode  OutputMode  // Where logs go
-    LogDir      string      // Directory for files (FileMode)
-    LogFileName string      // Base filename (FileMode)
-    MaxLogSize  int         // MB before rotation
-    MaxLogFiles int         // Number of backups
-    MaxAge      int         // Days to retain
+type Config struct {
+    Sink   SinkConfig    // Destination configuration
+    Format FormatConfig  // Presentation configuration
+}
+
+type SinkConfig struct {
+    Mode       OutputMode  // Where logs go
+    Dir        string      // Directory for files (FileMode)
+    FileName   string      // Base filename (FileMode)
+    MaxSizeMB  int         // MB before rotation
+    MaxFiles   int         // Number of backups
+    MaxAgeDays int         // Days to retain
+}
+
+type FormatConfig struct {
+    Level        zerolog.Level  // Minimum log level
+    Format       LogFormat      // Output format
+    TimeOnly     bool           // Time-only timestamps
+    CallerDirLvl int            // Caller directory depth
 }
 ```
 
-**Default values** (from `DefaultLogConfig()`):
-- `OutputMode`: `ConsoleMode` (cloud-native default)
-- `LogDir`: `/var/log`
-- `LogFileName`: `""` (empty - must set for FileMode)
-- `MaxLogSize`: `100` MB
-- `MaxLogFiles`: `5` backups
-- `MaxAge`: `28` days
+**Default values** (from `DefaultConfig()`):
+- **Sink defaults:**
+  - `Mode`: `ConsoleMode` (cloud-native default)
+  - `Dir`: `/var/log`
+  - `FileName`: `""` (empty - must set for FileMode)
+  - `MaxSizeMB`: `100` MB
+  - `MaxFiles`: `5` backups
+  - `MaxAgeDays`: `28` days
+- **Format defaults:**
+  - `Level`: `zerolog.InfoLevel`
+  - `Format`: `LogFormatJSON`
+  - `TimeOnly`: `false`
+  - `CallerDirLvl`: `-1` (disabled)
 
 ### Multi-Level Writer
 
@@ -179,13 +199,15 @@ log := logger.NewZeroLogger()
 **Use Case:** Full control over logging behavior
 
 ```go
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log/myapp",
-    LogFileName: "service.log",
-    MaxLogSize:  50,
-    MaxLogFiles: 10,
-    MaxAge:      7,
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/var/log/myapp",
+        FileName:   "service.log",
+        MaxSizeMB:  50,
+        MaxFiles:   10,
+        MaxAgeDays: 7,
+    },
 }
 
 log := logger.NewZeroLoggerWithConfig(config)
@@ -197,17 +219,19 @@ log := logger.NewZeroLoggerWithConfig(config)
 
 ```go
 // Define sensible application defaults
-appDefaults := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/app/logs",
-    LogFileName: "service.log",
-    MaxLogSize:  100,
-    MaxLogFiles: 5,
-    MaxAge:      14,
+appDefaults := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/app/logs",
+        FileName:   "service.log",
+        MaxSizeMB:  100,
+        MaxFiles:   5,
+        MaxAgeDays: 14,
+    },
 }
 
 // Allow environment to override
-config := logger.NewLogConfigFromEnv(appDefaults)
+config := logger.NewConfigFromEnv(appDefaults)
 log := logger.NewZeroLoggerWithConfig(config)
 ```
 
@@ -280,40 +304,42 @@ data:
 
 ### Configuration Functions
 
-#### `DefaultLogConfig() LogConfig`
+#### `DefaultConfig() Config`
 
 Returns default configuration for console logging.
 
 ```go
-config := logger.DefaultLogConfig()
+config := logger.DefaultConfig()
 // OutputMode: ConsoleMode
 // LogFileName: "" (empty)
 ```
 
-#### `NewLogConfigFromEnv(defaultConfig LogConfig) LogConfig`
+#### `NewConfigFromEnv(defaultConfig Config) Config`
 
 Merges custom defaults with environment overrides. **Only set environment variables override defaults.**
 
 ```go
-custom := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/my/logs",
-    LogFileName: "app.log",
-    MaxLogSize:  200,
+custom := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/my/logs",
+        FileName:   "app.log",
+        MaxSizeMB:  200,
+    },
 }
 
 os.Setenv("LOG_MAX_SIZE_MB", "50")
 
-config := logger.NewLogConfigFromEnv(custom)
+config := logger.NewConfigFromEnv(custom)
 // Result:
 // - MaxLogSize: 50 (from env)
 // - LogDir: "/my/logs" (from custom)
 // - LogFileName: "app.log" (from custom)
 ```
 
-#### `NewDefaultConfigWithEnvOverride() LogConfig`
+#### `NewDefaultConfigWithEnvOverride() Config`
 
-Convenience function for: `NewLogConfigFromEnv(DefaultLogConfig())`
+Convenience function for: `NewConfigFromEnv(DefaultConfig())`
 
 ```go
 config := logger.NewDefaultConfigWithEnvOverride()
@@ -330,18 +356,20 @@ log := logger.NewZeroLogger()
 log.Info().Msg("Ready")
 ```
 
-#### `NewZeroLoggerWithConfig(config LogConfig) *zerolog.Logger`
+#### `NewZeroLoggerWithConfig(config Config) *zerolog.Logger`
 
 Creates logger with explicit configuration.
 
 ```go
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log",
-    LogFileName: "app.log",
-    MaxLogSize:  100,
-    MaxLogFiles: 5,
-    MaxAge:      28,
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/var/log",
+        FileName:   "app.log",
+        MaxSizeMB:  100,
+        MaxFiles:   5,
+        MaxAgeDays: 28,
+    },
 }
 
 log := logger.NewZeroLoggerWithConfig(config)
@@ -369,7 +397,7 @@ The logger **never crashes** due to misconfiguration. Instead, it emits warnings
 
 **Configuration:**
 ```go
-config := logger.DefaultLogConfig()
+config := logger.DefaultConfig()
 config.OutputMode = logger.FileMode
 // Forgot to set LogFileName!
 ```
@@ -387,10 +415,12 @@ config.OutputMode = logger.FileMode
 
 **Configuration:**
 ```go
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogFileName: "test.log",
-    // LogDir is empty
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:     logger.FileMode,
+        FileName: "test.log",
+        // Dir is empty
+    },
 }
 ```
 
@@ -406,13 +436,15 @@ config := logger.LogConfig{
 #### Correct Configuration (No Warnings)
 
 ```go
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log/myapp",
-    LogFileName: "myapp.log",
-    MaxLogSize:  100,
-    MaxLogFiles: 5,
-    MaxAge:      28,
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/var/log/myapp",
+        FileName:   "myapp.log",
+        MaxSizeMB:  100,
+        MaxFiles:   5,
+        MaxAgeDays: 28,
+    },
 }
 
 log := logger.NewZeroLoggerWithConfig(config)
@@ -463,16 +495,16 @@ myapp-2025-09-29T12-00-00.000.gz       # 2 days ago
 
 **High-frequency application:**
 ```go
-config.MaxLogSize = 50   // Rotate more often
-config.MaxLogFiles = 20  // Keep more history
-config.MaxAge = 7        // Delete after 1 week
+config.Sink.MaxSizeMB = 50   // Rotate more often
+config.Sink.MaxFiles = 20    // Keep more history
+config.Sink.MaxAgeDays = 7   // Delete after 1 week
 ```
 
 **Low-frequency application:**
 ```go
-config.MaxLogSize = 500  // Larger files
-config.MaxLogFiles = 3   // Fewer backups
-config.MaxAge = 90       // Keep for 3 months
+config.Sink.MaxSizeMB = 500  // Larger files
+config.Sink.MaxFiles = 3     // Fewer backups
+config.Sink.MaxAgeDays = 90  // Keep for 3 months
 ```
 
 ---
@@ -511,13 +543,15 @@ kubectl logs pod-name
 
 **Implementation:**
 ```go
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log/mydaemon",
-    LogFileName: "daemon.log",
-    MaxLogSize:  100,
-    MaxLogFiles: 10,
-    MaxAge:      30,
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/var/log/mydaemon",
+        FileName:   "daemon.log",
+        MaxSizeMB:  100,
+        MaxFiles:   10,
+        MaxAgeDays: 30,
+    },
 }
 
 log := logger.NewZeroLoggerWithConfig(config)
@@ -537,13 +571,15 @@ tail -f /var/log/mydaemon/daemon-error.log  # Watch errors only
 
 **Implementation:**
 ```go
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      os.TempDir(),
-    LogFileName: "cli-tool.log",
-    MaxLogSize:  10,  // 10MB
-    MaxLogFiles: 2,
-    MaxAge:      1,   // 1 day
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        os.TempDir(),
+        FileName:   "cli-tool.log",
+        MaxSizeMB:  10,  // 10MB
+        MaxFiles:   2,
+        MaxAgeDays: 1,   // 1 day
+    },
 }
 
 log := logger.NewZeroLoggerWithConfig(config)
@@ -558,16 +594,18 @@ log := logger.NewZeroLoggerWithConfig(config)
 
 **Implementation:**
 ```go
-appDefaults := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/app/logs",
-    LogFileName: "app.log",
-    MaxLogSize:  100,
-    MaxLogFiles: 5,
-    MaxAge:      14,
+appDefaults := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/app/logs",
+        FileName:   "app.log",
+        MaxSizeMB:  100,
+        MaxFiles:   5,
+        MaxAgeDays: 14,
+    },
 }
 
-config := logger.NewLogConfigFromEnv(appDefaults)
+config := logger.NewConfigFromEnv(appDefaults)
 log := logger.NewZeroLoggerWithConfig(config)
 ```
 
@@ -593,22 +631,24 @@ LOG_MAX_SIZE_MB=50 LOG_MAX_AGE_DAYS=7 ./app
 
 **Implementation:**
 ```go
-baseConfig := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log/myapp",
-    MaxLogSize:  100,
-    MaxLogFiles: 5,
-    MaxAge:      28,
+baseConfig := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/var/log/myapp",
+        MaxSizeMB:  100,
+        MaxFiles:   5,
+        MaxAgeDays: 28,
+    },
 }
 
 // HTTP module
 httpConfig := baseConfig
-httpConfig.LogFileName = "http.log"
+httpConfig.Sink.FileName = "http.log"
 httpLog := logger.NewZeroLoggerWithConfig(httpConfig)
 
 // Database module
 dbConfig := baseConfig
-dbConfig.LogFileName = "database.log"
+dbConfig.Sink.FileName = "database.log"
 dbLog := logger.NewZeroLoggerWithConfig(dbConfig)
 
 // Queue module
@@ -669,20 +709,22 @@ Separate writers avoid filtering overhead:
 
 ```go
 func TestLogging(t *testing.T) {
-    config := logger.LogConfig{
-        OutputMode:  logger.FileMode,
-        LogDir:      t.TempDir(), // Auto-cleanup
-        LogFileName: "test.log",
-        MaxLogSize:  10,
-        MaxLogFiles: 2,
-        MaxAge:      1,
+    config := logger.Config{
+        Sink: logger.SinkConfig{
+            Mode:       logger.FileMode,
+            Dir:        t.TempDir(), // Auto-cleanup
+            FileName:   "test.log",
+            MaxSizeMB:  10,
+            MaxFiles:   2,
+            MaxAgeDays: 1,
+        },
     }
 
     log := logger.NewZeroLoggerWithConfig(config)
     log.Info().Msg("test message")
 
     // Verify log file
-    logPath := filepath.Join(config.LogDir, "test.log")
+    logPath := filepath.Join(config.Sink.Dir, "test.log")
     content, err := os.ReadFile(logPath)
     require.NoError(t, err)
     assert.Contains(t, string(content), "test message")
@@ -707,21 +749,25 @@ func TestLogContent(t *testing.T) {
 
 ## Best Practices
 
-### 1. Always Set LogFileName for FileMode
+### 1. Always Set FileName for FileMode
 
 ```go
 // ✅ Good
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogFileName: "myapp.log", // Explicit
-    LogDir:      "/var/log",
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:     logger.FileMode,
+        FileName: "myapp.log", // Explicit
+        Dir:      "/var/log",
+    },
 }
 
 // ❌ Bad - relies on fallback warning
-config := logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log",
-    // Missing LogFileName
+config := logger.Config{
+    Sink: logger.SinkConfig{
+        Mode: logger.FileMode,
+        Dir:  "/var/log",
+        // Missing FileName
+    },
 }
 ```
 
@@ -729,11 +775,11 @@ config := logger.LogConfig{
 
 ```go
 // ✅ Good - configurable per environment
-appDefaults := logger.LogConfig{...}
-config := logger.NewLogConfigFromEnv(appDefaults)
+appDefaults := logger.Config{...}
+config := logger.NewConfigFromEnv(appDefaults)
 
 // ❌ Bad - hardcoded
-config := logger.LogConfig{
+config := logger.Config{
     LogDir: "/var/log", // Fixed, can't override
 }
 ```
@@ -765,12 +811,12 @@ log := logger.NewZeroLogger() // Everything in one file
 // ✅ Good - calculate based on disk
 // Disk: 100GB, allow 10GB for logs
 // Each file: 100MB, keep 100 files
-config.MaxLogSize = 100
-config.MaxLogFiles = 100
+config.Sink.MaxSizeMB = 100
+config.Sink.MaxFiles = 100
 
 // ❌ Bad - unlimited growth
-config.MaxLogFiles = 999
-config.MaxAge = 999
+config.Sink.MaxFiles = 999
+config.Sink.MaxAgeDays = 999
 ```
 
 ---
@@ -797,7 +843,7 @@ zerolog: could not write event: can't open new logfile: open /var/log/app.log: p
 **Solutions:**
 ```go
 // Option 1: Use writable directory
-config.LogDir = "/tmp"
+config.Sink.Dir = "/tmp"
 
 // Option 2: Run with permissions
 sudo ./app
@@ -814,11 +860,11 @@ chmod 755 /var/log/myapp
 **Solutions:**
 ```go
 // Reduce log size
-config.MaxLogSize = 50  // 50MB instead of 100MB
+config.Sink.MaxSizeMB = 50  // 50MB instead of 100MB
 
 // Reduce retention
-config.MaxLogFiles = 5  // 5 backups instead of 10
-config.MaxAge = 7       // 7 days instead of 28
+config.Sink.MaxFiles = 5    // 5 backups instead of 10
+config.Sink.MaxAgeDays = 7  // 7 days instead of 28
 ```
 
 ### Missing Error Logs

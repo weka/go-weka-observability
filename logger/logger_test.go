@@ -14,6 +14,23 @@ import (
 	"github.com/weka/go-weka-observability/logger"
 )
 
+// cleanupEnvVars removes specified environment variables
+func cleanupEnvVars(t *testing.T, vars []string) {
+	t.Helper()
+	for _, v := range vars {
+		if err := os.Unsetenv(v); err != nil {
+			t.Logf("failed to unset %s: %v", v, err)
+		}
+	}
+}
+
+// allLogEnvVars contains all LOG_* environment variables used in tests
+var allLogEnvVars = []string{
+	"LOG_MODE", "LOG_DIR", "LOG_FILE_NAME",
+	"LOG_MAX_SIZE_MB", "LOG_MAX_FILES", "LOG_MAX_AGE_DAYS",
+	"LOG_LEVEL", "LOG_FORMAT", "LOG_TIME_ONLY", "LOG_CALLER_DIR_LVL",
+}
+
 // Testify Suite for complex tests with file operations
 
 type LoggerTestSuite struct {
@@ -29,15 +46,7 @@ func (s *LoggerTestSuite) SetupTest() {
 
 func (s *LoggerTestSuite) TearDownTest() {
 	slog.SetDefault(slog.New(s.origSlogHandler))
-	envVars := []string{
-		"LOG_MODE", "LOG_DIR", "LOG_FILE_NAME",
-		"LOG_MAX_SIZE_MB", "LOG_MAX_FILES", "LOG_MAX_AGE_DAYS",
-	}
-	for _, v := range envVars {
-		if err := os.Unsetenv(v); err != nil {
-			s.T().Logf("failed to unset %s: %v", v, err)
-		}
-	}
+	cleanupEnvVars(s.T(), allLogEnvVars)
 }
 
 func TestLoggerSuite(t *testing.T) {
@@ -354,16 +363,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
 	// Clean up all env vars before starting
-	allEnvVars := []string{
-		"LOG_MODE", "LOG_DIR", "LOG_FILE_NAME",
-		"LOG_MAX_SIZE_MB", "LOG_MAX_FILES", "LOG_MAX_AGE_DAYS",
-		"LOG_LEVEL", "LOG_FORMAT", "LOG_TIME_ONLY", "LOG_CALLER_DIR_LVL",
-	}
-	for _, v := range allEnvVars {
-		if err := os.Unsetenv(v); err != nil {
-			t.Logf("failed to unset %s: %v", v, err)
-		}
-	}
+	cleanupEnvVars(t, allLogEnvVars)
 
 	tests := []struct {
 		name     string
@@ -424,11 +424,7 @@ func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clean all env vars before each test
-			for _, v := range allEnvVars {
-				if err := os.Unsetenv(v); err != nil {
-					t.Logf("failed to unset %s: %v", v, err)
-				}
-			}
+			cleanupEnvVars(t, allLogEnvVars)
 
 			require.NoError(t, os.Setenv(tt.envKey, tt.envValue))
 			defer func() {
@@ -445,16 +441,7 @@ func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
 
 func TestNewConfigFromEnv_FormatOverrides(t *testing.T) {
 	// Clean up all env vars before starting
-	allEnvVars := []string{
-		"LOG_MODE", "LOG_DIR", "LOG_FILE_NAME",
-		"LOG_MAX_SIZE_MB", "LOG_MAX_FILES", "LOG_MAX_AGE_DAYS",
-		"LOG_LEVEL", "LOG_FORMAT", "LOG_TIME_ONLY", "LOG_CALLER_DIR_LVL",
-	}
-	for _, v := range allEnvVars {
-		if err := os.Unsetenv(v); err != nil {
-			t.Logf("failed to unset %s: %v", v, err)
-		}
-	}
+	cleanupEnvVars(t, allLogEnvVars)
 
 	tests := []struct {
 		name     string
@@ -499,11 +486,7 @@ func TestNewConfigFromEnv_FormatOverrides(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clean all env vars before each test
-			for _, v := range allEnvVars {
-				if err := os.Unsetenv(v); err != nil {
-					t.Logf("failed to unset %s: %v", v, err)
-				}
-			}
+			cleanupEnvVars(t, allLogEnvVars)
 
 			require.NoError(t, os.Setenv(tt.envKey, tt.envValue))
 			defer func() {

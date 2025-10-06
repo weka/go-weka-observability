@@ -7,13 +7,13 @@ import (
 	"context"
 	"os"
 
-	"github.com/go-logr/zerologr"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/go-weka-observability/logger"
 )
 
 func init() {
-	// set default log level and format
+	// Set default log level and format via environment variables
+	// These are automatically picked up by NewDefaultConfigWithEnvOverrides()
 	if os.Getenv("LOG_LEVEL") == "" {
 		os.Setenv("LOG_LEVEL", "0")
 	}
@@ -23,17 +23,16 @@ func init() {
 	if os.Getenv("LOG_CALLER_DIR_LVL") == "" {
 		os.Setenv("LOG_CALLER_DIR_LVL", "1")
 	}
-
-	logger.SetCallerDirDisplayLevel()
 }
 
 // NOTE: set OTEL_EXPORTER_OTLP_ENDPOINT=https://otelcollector.rnd.weka.io:4317 environment variable before running this test
 func TestLogSpan() {
 	ctx := context.Background()
 
-	// initialize root logger and put it into context
-	logr := zerologr.New(logger.NewZeroLogger())
-	ctx, ctxLogger := instrumentation.GetLoggerForContext(ctx, &logr, "Test")
+	// Initialize logger with environment configuration and store in context
+	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides()).WithName("Test")
+	ctx = logger.ContextWithLogr(ctx, logr)
+	ctxLogger := logger.MustLogrFromContext(ctx)
 
 	shutdown, err := instrumentation.SetupOTelSDK(context.Background(), "test-logspan", "v0.0.1", ctxLogger)
 	if err != nil {
@@ -70,4 +69,8 @@ func innerFunc2(ctx context.Context) {
 	defer end()
 
 	logger.Info("innerFunc2 is called")
+}
+
+func main() {
+	TestLogSpan()
 }

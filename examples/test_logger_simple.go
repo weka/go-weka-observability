@@ -19,7 +19,7 @@ func main() {
 	config := zerologger.Config{
 		Sink: zerologger.SinkConfig{
 			Mode:       zerologger.FileMode,
-			Dir:        ".",
+			Dir:        "test-logs",
 			FileName:   "tg-cli.log",
 			MaxSizeMB:  100,
 			MaxFiles:   5,
@@ -59,9 +59,9 @@ func main() {
 
 	fmt.Println("\n=== Test completed ===")
 	fmt.Println("Check the following files for output:")
-	fmt.Println("- ./tg-cli.log (file mode info logs)")
-	fmt.Println("- ./tg-cli-error.log (file mode error logs)")
-	fmt.Println("- ./test-logs/test.log (env override info logs)")
-	fmt.Println("- ./test-logs/test-error.log (env override error logs)")
+	fmt.Println("- test-logs/tg-cli.log (file mode info logs)")
+	fmt.Println("- test-logs/tg-cli-error.log (file mode error logs)")
+	fmt.Println("- test-logs/test.log (env override info logs)")
+	fmt.Println("- test-logs/test-error.log (env override error logs)")
 }
 
