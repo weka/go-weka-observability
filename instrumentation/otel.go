@@ -3,7 +3,6 @@ package instrumentation
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"time"
 
@@ -21,8 +20,6 @@ import (
 
 var (
 	Tracer trace.Tracer
-
-	otlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 )
 
 const (
@@ -39,11 +36,107 @@ const (
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 // Additional resource attributes can be provided as key-value pairs.
+//
+// Deprecated: Use SetupOTelSDKFrom or SetupOTelSDKWithOptions instead.
+// This function maintains backward compatibility but doesn't allow endpoint configuration via API.
+//
+// Migration examples:
+//
+// Old:
+//
+//	shutdown, err := instrumentation.SetupOTelSDK(ctx, "service", "v1", logger, "key", "value")
+//
+// New (functional options):
+//
+//	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+//	    ctx, "service", "v1", logger,
+//	    instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+//	    instrumentation.WithResourceAttributes("key", "value"),
+//	)
+//
+// New (explicit config):
+//
+//	config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
+//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "service", "v1", logger, config, "key", "value")
 func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
+	return SetupOTelSDKWithOptions(
+		ctx, serviceName, serviceVersion, logger,
+		WithResourceAttributes(keysAndValues...),
+	)
+}
+
+// SetupOTelSDKFrom bootstraps the OpenTelemetry pipeline with explicit configuration.
+// If it does not return an error, make sure to call shutdown for proper cleanup.
+//
+// This function follows the same pattern as logger.CreateLoggerFrom - you provide a config
+// that can include defaults overridden by environment variables.
+//
+// Example with environment defaults:
+//
+//	config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
+//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logger, config, "key", "value")
+//
+// Example with custom defaults that can be overridden by env:
+//
+//	config := instrumentation.OTelConfig{
+//	    Endpoint: "http://default-collector:4317",  // This is the DEFAULT
+//	}
+//	config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
+//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logger, config, "key", "value")
+func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
 	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
+
+	// Merge provided keysAndValues with config's ResourceAttributes
+	// Copy ResourceAttributes to avoid mutating the caller's config
+	if len(keysAndValues) > 0 {
+		newAttrs := make([]any, len(config.ResourceAttributes))
+		copy(newAttrs, config.ResourceAttributes)
+		config.ResourceAttributes = append(newAttrs, keysAndValues...)
+	}
+
+	return setupOTelSDKInternal(ctx, serviceName, serviceVersion, logger, config)
+}
+
+// SetupOTelSDKWithOptions bootstraps the OpenTelemetry pipeline with functional options.
+// If it does not return an error, make sure to call shutdown for proper cleanup.
+//
+// This function follows the same pattern as logger.CreateLogger - functional options
+// are applied to defaults, then environment variables can override.
+//
+// Example usage:
+//
+//	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+//	    ctx, "my-service", "v1.0.0", logger,
+//	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
+//	    instrumentation.WithResourceAttributes("environment", "production"),
+//	)
+//	if err != nil {
+//	    return err
+//	}
+//	defer shutdown(ctx)
+func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, opts ...OTelOption) (shutdown func(context.Context) error, err error) {
+	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
+
+	// Start with defaults
+	config := DefaultOTelConfig()
+
+	// Apply functional options to set defaults
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	// Environment variables can override the defaults set by options
+	config = NewOTelConfigFromEnv(config)
+
+	return setupOTelSDKInternal(ctx, serviceName, serviceVersion, logger, config)
+}
+
+// setupOTelSDKInternal contains the actual OpenTelemetry SDK initialization logic.
+// This is extracted to be reused by both SetupOTelSDK and SetupOTelSDKWithOptions.
+func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig) (shutdown func(context.Context) error, err error) {
 	Tracer = otel.Tracer(serviceName)
 
-	if otlpEndpoint == "" {
+	if config.Endpoint == "" {
 		logger.V(VerbosityLevelInfo).WithCallDepth(CallDepthOffset).Info("No OTLP endpoint configured - traces will not be exported")
 		return func(ctx context.Context) error {
 			return nil
@@ -60,7 +153,7 @@ func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logge
 	otel.SetTextMapPropagator(prop)
 
 	// Set up trace provider.
-	tracerProvider, err := newTraceProvider(ctx, serviceName, serviceVersion, logger, keysAndValues...)
+	tracerProvider, err := newTraceProvider(ctx, serviceName, serviceVersion, config.Endpoint, logger, config.ResourceAttributes...)
 	if err != nil {
 		handleErr(err)
 		return shutdown, err
@@ -113,21 +206,21 @@ func newPropagator() propagation.TextMapPropagator {
 	)
 }
 
-func newTraceProvider(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (*tracesdk.TracerProvider, error) {
+func newTraceProvider(ctx context.Context, serviceName, serviceVersion, endpoint string, logger logr.Logger, keysAndValues ...any) (*tracesdk.TracerProvider, error) {
 	logger.Info("Setting up OTel trace provider", "service", serviceName, "version", serviceVersion)
 	var traceProvider *tracesdk.TracerProvider
 
-	if otlpEndpoint != "" {
-		logger.Info("OTLP endpoint set", "endpoint", otlpEndpoint)
+	if endpoint != "" {
+		logger.Info("OTLP endpoint set", "endpoint", endpoint)
 
 		securityOption := otlptracegrpc.WithInsecure()
-		if strings.Contains(otlpEndpoint, "https://") {
+		if strings.Contains(endpoint, "https://") {
 			securityOption = otlptracegrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, ""))
 		}
 		traceExporter, err := otlptracegrpc.New(ctx,
 			securityOption,
 			otlptracegrpc.WithTimeout(OTLPExporterTimeout),
-			otlptracegrpc.WithEndpointURL(otlpEndpoint),
+			otlptracegrpc.WithEndpointURL(endpoint),
 		)
 		if err != nil {
 			logger.Error(err, "failed to create OTLP trace exporter")

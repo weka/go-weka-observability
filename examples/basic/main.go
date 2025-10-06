@@ -47,12 +47,26 @@ func main() {
 
 	// Setup OpenTelemetry SDK with custom resource attributes
 	// Resource attributes are metadata attached to all spans from this service
-	shutdown, err := instrumentation.SetupOTelSDK(
+	//
+	// API Option 1: SetupOTelSDKFrom - Explicit config with env override
+	// This follows the same pattern as logger.CreateLoggerFrom
+	// config := instrumentation.OTelConfig{
+	//     Endpoint: "http://localhost:4317",  // DEFAULT value
+	// }
+	// config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
+	// shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "basic-logspan-example", "v1.0.0", ctxLogger, config, rootKeysAndValues...)
+	//
+	// API Option 2: SetupOTelSDKWithOptions - Functional options (env overrides)
+	// This follows the same pattern as logger.CreateLogger
+	// Options set DEFAULT values that can be overridden by OTEL_EXPORTER_OTLP_ENDPOINT env var
+	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
 		ctx,
 		"basic-logspan-example",
 		"v1.0.0",
 		ctxLogger,
-		rootKeysAndValues...,
+		// WithDefaultOTLPEndpoint sets DEFAULT that OTEL_EXPORTER_OTLP_ENDPOINT env can override
+		// instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+		instrumentation.WithResourceAttributes(rootKeysAndValues...),
 	)
 	if err != nil {
 		panic(err)

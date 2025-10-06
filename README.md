@@ -72,11 +72,19 @@ spanLogger.Info("Operation in progress", "key", "value")
 
 ## Documentation
 
+### Logger
 - **[Logger Configuration API](docs/logger-configuration-api.md)** - Complete configuration guide, use cases, environment variables, best practices, troubleshooting
 - **[Migration Guide](docs/logger-initialization-migration.md)** - Upgrade from deprecated `GetLoggerForContext` API
+
+### Instrumentation (OpenTelemetry)
+- **[Instrumentation Configuration API](docs/instrumentation-configuration-api.md)** - Complete tracing configuration guide, usage patterns, environment variables, best practices
+
+### Examples
 - **[Examples](examples/)** - Runnable code examples demonstrating common patterns
 
 ## Environment Variables
+
+### Logger Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -91,7 +99,13 @@ spanLogger.Info("Operation in progress", "key", "value")
 | `LOG_TIME_ONLY` | `false` | Use time-only format instead of full timestamp |
 | `LOG_CALLER_DIR_LVL` | `-1` | Number of directory levels in caller field (-1=disabled) |
 
-See [Configuration Guide](docs/logger-configuration-api.md#environment-configuration) for complete details.
+### Instrumentation (OpenTelemetry) Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OTLP collector endpoint (e.g., `http://localhost:4317`) |
+
+See [Logger Configuration Guide](docs/logger-configuration-api.md#environment-configuration) and [Instrumentation Configuration Guide](docs/instrumentation-configuration-api.md#environment-configuration) for complete details.
 
 ## Features
 
