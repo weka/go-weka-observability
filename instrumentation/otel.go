@@ -25,15 +25,26 @@ var (
 	otlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 )
 
+const (
+	// OTLPExporterTimeout defines the maximum time to wait when establishing
+	// a connection to the OTLP endpoint during trace exporter initialization
+	OTLPExporterTimeout = 5 * time.Second
+
+	// OTLPBatchTimeout defines how frequently batched traces are exported.
+	// Lower values reduce latency but increase network overhead and batching efficiency.
+	// OpenTelemetry default is 5s; we use 1s for faster trace visibility.
+	OTLPBatchTimeout = time.Second
+)
+
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 // Additional resource attributes can be provided as key-value pairs.
 func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
-	logger.V(VerbosityLevelDebug).WithCallDepth(1).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
+	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 	Tracer = otel.Tracer(serviceName)
 
 	if otlpEndpoint == "" {
-		logger.V(2).WithCallDepth(1).Info("No OTLP endpoint configured - traces will not be exported")
+		logger.V(VerbosityLevelInfo).WithCallDepth(CallDepthOffset).Info("No OTLP endpoint configured - traces will not be exported")
 		return func(ctx context.Context) error {
 			return nil
 		}, nil
@@ -115,7 +126,7 @@ func newTraceProvider(ctx context.Context, serviceName, serviceVersion string, l
 		}
 		traceExporter, err := otlptracegrpc.New(ctx,
 			securityOption,
-			otlptracegrpc.WithTimeout(5*time.Second),
+			otlptracegrpc.WithTimeout(OTLPExporterTimeout),
 			otlptracegrpc.WithEndpointURL(otlpEndpoint),
 		)
 		if err != nil {
@@ -131,8 +142,7 @@ func newTraceProvider(ctx context.Context, serviceName, serviceVersion string, l
 
 		traceProvider = tracesdk.NewTracerProvider(
 			tracesdk.WithBatcher(traceExporter,
-				// Default is 5s. Set to 1s for demonstrative purposes.
-				tracesdk.WithBatchTimeout(time.Second)),
+				tracesdk.WithBatchTimeout(OTLPBatchTimeout)),
 			tracesdk.WithResource(res),
 		)
 	}
