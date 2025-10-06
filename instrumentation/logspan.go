@@ -35,6 +35,21 @@ const (
 	// Used for detailed operation lifecycle tracing (span start/end, operation calls)
 	// Most verbose level supported by zerologr
 	VerbosityLevelTrace = 2
+
+	// CallDepthOffset adjusts stack frame reporting for wrapped logger calls.
+	// When logging through wrapper functions (SpanLogger methods, helper functions),
+	// we skip 1 stack frame to report the actual caller's file:line instead of the wrapper's.
+	//
+	// Example without CallDepthOffset:
+	//   func (ls *SpanLogger) Info(msg string) {
+	//       ls.Logger.Info(msg)  // Log shows: logspan.go:171 > message
+	//   }
+	//
+	// Example with CallDepthOffset:
+	//   func (ls *SpanLogger) Info(msg string) {
+	//       ls.Logger.WithCallDepth(CallDepthOffset).Info(msg)  // Log shows: caller.go:42 > message
+	//   }
+	CallDepthOffset = 1
 )
 
 func init() {
@@ -168,28 +183,28 @@ func attributeFromValue(key string, value any) attribute.KeyValue {
 }
 
 func (ls *SpanLogger) Info(msg string, keysAndValues ...any) {
-	ls.Logger.WithCallDepth(1).Info(msg, keysAndValues...)
+	ls.Logger.WithCallDepth(CallDepthOffset).Info(msg, keysAndValues...)
 	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 
 func (ls *SpanLogger) Debug(msg string, keysAndValues ...any) {
 	// logr.V(1) is equivalent to zerolog.DebugLevel
-	ls.V(1).WithCallDepth(1).Info(msg, keysAndValues...)
+	ls.V(1).WithCallDepth(CallDepthOffset).Info(msg, keysAndValues...)
 	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 
 func (ls *SpanLogger) Printf(msg string, args ...any) {
-	ls.WithCallDepth(1).Info(fmt.Sprintf(msg, args...))
+	ls.WithCallDepth(CallDepthOffset).Info(fmt.Sprintf(msg, args...))
 }
 
 func (ls *SpanLogger) Errorf(msg string, args ...any) {
-	ls.WithCallDepth(1).Error(fmt.Errorf(msg, args...), "")
+	ls.WithCallDepth(CallDepthOffset).Error(fmt.Errorf(msg, args...), "")
 }
 
 func (ls *SpanLogger) InfoWithStatus(code codes.Code, msg string, keysAnValues ...any) {
-	ls.WithCallDepth(1).Info(msg, keysAnValues...)
+	ls.WithCallDepth(CallDepthOffset).Info(msg, keysAnValues...)
 	ls.SetAttributes(getAttributesFromKeysAndValues(keysAnValues...)...)
 	ls.AddEvent(msg)
 	ls.SetStatus(code, msg)
@@ -197,18 +212,18 @@ func (ls *SpanLogger) InfoWithStatus(code codes.Code, msg string, keysAnValues .
 
 func (ls *SpanLogger) Warn(msg string, keysAndValues ...any) {
 	keysAndValues = append(keysAndValues, "level", "warn")
-	ls.Logger.WithCallDepth(1).Info(msg, keysAndValues...)
+	ls.Logger.WithCallDepth(CallDepthOffset).Info(msg, keysAndValues...)
 	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 
 func (ls *SpanLogger) Error(err error, msg string, keysAndValues ...any) {
-	ls.Logger.WithCallDepth(1).Error(err, msg, keysAndValues...)
+	ls.Logger.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
 	ls.RecordError(err)
 }
 
 func (ls *SpanLogger) SetError(err error, msg string, keysAndValues ...any) {
-	ls.WithCallDepth(1).Error(err, msg, keysAndValues...)
+	ls.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
 	ls.SetStatus(codes.Error, msg)
 	// TODO: Validate that error is not set yet
 }
@@ -220,12 +235,12 @@ func (ls *SpanLogger) SetAttributes(attrs ...attribute.KeyValue) {
 }
 
 func (ls *SpanLogger) Fatal(err error, msg string, keysAndValues ...any) {
-	ls.WithCallDepth(1).Error(err, msg, keysAndValues...)
+	ls.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
 	os.Exit(1)
 }
 
 func (ls *SpanLogger) Panic(err error, msg string, keysAndValues ...any) {
-	ls.WithCallDepth(1).Error(err, msg, keysAndValues...)
+	ls.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
 	panic(err)
 }
 
