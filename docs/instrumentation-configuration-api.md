@@ -1,0 +1,743 @@
+# Instrumentation Configuration Architecture
+
+## Overview
+
+The `instrumentation` package provides OpenTelemetry-based distributed tracing with flexible configuration and environment-based overrides. It follows the same configuration pattern as the `logger` package, making it intuitive and consistent across the observability toolkit.
+
+**Key Features:**
+- Type-safe configuration with environment variable overrides
+- Multiple API patterns (config-based and functional options)
+- Automatic trace context propagation
+- Integration with logr.Logger for unified observability
+- Production-ready with graceful degradation (no endpoint = no export)
+- Combined logging and tracing via `GetLogSpan`
+
+---
+
+## Quick Start
+
+### Basic Setup (Environment Variable Only)
+
+```go
+import (
+    "github.com/weka/go-weka-observability/instrumentation"
+    "github.com/weka/go-weka-observability/logger"
+)
+
+func main() {
+    ctx := context.Background()
+
+    // Create logger
+    logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
+
+    // Setup OpenTelemetry (uses OTEL_EXPORTER_OTLP_ENDPOINT env var)
+    shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+        ctx, "my-service", "v1.0.0", logr,
+    )
+    if err != nil {
+        panic(err)
+    }
+    defer shutdown(ctx)
+
+    // Use combined logging and tracing
+    ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
+    defer end()
+
+    spanLogger.Info("Operation started", "user", "alice")
+}
+```
+
+**Environment variable:**
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+### With Default Endpoint (Overridable by Env)
+
+```go
+// Set a default endpoint that env var can override
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "my-service", "v1.0.0", logr,
+    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
+    instrumentation.WithResourceAttributes("environment", "production", "region", "us-west"),
+)
+// OTEL_EXPORTER_OTLP_ENDPOINT environment variable overrides this default
+```
+
+### With Explicit Config
+
+```go
+// Full control over configuration
+config := instrumentation.OTelConfig{
+    Endpoint: "http://otel-collector:4317",  // DEFAULT value
+}
+config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
+
+shutdown, err := instrumentation.SetupOTelSDKFrom(
+    ctx, "my-service", "v1.0.0", logr, config,
+    "environment", "production",  // Resource attributes
+)
+```
+
+---
+
+## Architecture
+
+### Design Principles
+
+1. **Default + Override Pattern** - Same as logger package (defaults can be overridden by env vars)
+2. **Environment-Driven** - Support 12-factor app configuration via `OTEL_*` env vars
+3. **Graceful Degradation** - No endpoint = no export (application continues normally)
+4. **Unified Observability** - Combined logging and tracing via `SpanLogger`
+5. **Context Propagation** - Automatic trace context through `context.Context`
+
+### Configuration Flow
+
+```
+Application
+    ↓
+OTelConfig (with defaults)
+    ↓
+NewOTelConfigFromEnv() (env overrides)
+    ↓
+SetupOTelSDKInternal() (initialization)
+    ↓
+    ├─→ TracerProvider (with exporter)
+    ├─→ TextMapPropagator (for context propagation)
+    └─→ Global Tracer (accessible via instrumentation.Tracer)
+```
+
+### Trace + Log Flow
+
+```
+Application Code
+    ↓
+GetLogSpan(ctx, "operation")
+    ↓
+    ├─→ Creates OpenTelemetry Span
+    └─→ Creates logr.Logger with trace/span IDs
+    ↓
+SpanLogger (combined logger + span)
+    ↓
+    ├─→ spanLogger.Info() → logs to logger + adds span event
+    ├─→ spanLogger.Error() → logs error + records span error
+    └─→ defer end() → closes span, logs completion
+```
+
+---
+
+## Configuration API
+
+### Configuration Priority
+
+All configuration APIs follow this priority order (highest to lowest):
+
+1. **Environment Variables** - `OTEL_EXPORTER_OTLP_ENDPOINT`
+2. **Functional Options or Config** - API-provided defaults
+3. **Built-in Defaults** - Empty endpoint (no export)
+
+### API 1: Config-Based (Explicit)
+
+**Pattern:** Mirrors `logger.CreateLoggerFrom` - explicit config with env overrides.
+
+```go
+// Step 1: Create config with your defaults
+config := instrumentation.OTelConfig{
+    Endpoint: "http://default-collector:4317",
+    ResourceAttributes: []any{"app", "myapp"},
+}
+
+// Step 2: Allow environment variable overrides
+config = instrumentation.NewOTelConfigFromEnv(config)
+
+// Step 3: Initialize SDK
+shutdown, err := instrumentation.SetupOTelSDKFrom(
+    ctx, "my-service", "v1.0.0", logger, config,
+    "additional", "attributes",  // Additional resource attributes
+)
+```
+
+**When to use:**
+- You need full control over configuration
+- You want to build config from multiple sources
+- You're migrating from config files
+
+### API 2: Functional Options (Recommended)
+
+**Pattern:** Mirrors `logger.CreateLogger` - options set defaults, env overrides.
+
+```go
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "my-service", "v1.0.0", logger,
+    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
+    instrumentation.WithResourceAttributes("environment", "production", "region", "us-west"),
+)
+// OTEL_EXPORTER_OTLP_ENDPOINT environment variable overrides WithDefaultOTLPEndpoint
+```
+
+**When to use:**
+- Clean, fluent API (recommended for most use cases)
+- You want sensible defaults with env override capability
+- You're starting a new project
+
+### API 3: Legacy (Deprecated)
+
+**Pattern:** Original API with only env var support.
+
+```go
+// ⚠️ Deprecated - no endpoint configuration via API
+shutdown, err := instrumentation.SetupOTelSDK(ctx, "service", "v1", logger, "key", "value")
+// Only OTEL_EXPORTER_OTLP_ENDPOINT environment variable works
+```
+
+**Migration:**
+- Replace with `SetupOTelSDKWithOptions` for functional options
+- Replace with `SetupOTelSDKFrom` for config-based approach
+
+---
+
+## Configuration Options
+
+### OTelConfig Structure
+
+```go
+type OTelConfig struct {
+    // Endpoint is the OTLP exporter endpoint (e.g., "http://localhost:4317")
+    // Empty string means no traces will be exported
+    Endpoint string `envconfig:"EXPORTER_OTLP_ENDPOINT"`
+
+    // ResourceAttributes are additional key-value pairs attached to all spans
+    ResourceAttributes []any
+}
+```
+
+### Functional Options
+
+#### WithDefaultOTLPEndpoint
+
+Sets the default OTLP exporter endpoint (can be overridden by `OTEL_EXPORTER_OTLP_ENDPOINT`).
+
+```go
+instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317")
+```
+
+**Example:**
+```go
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "my-service", "v1.0.0", logger,
+    instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+)
+
+// Override with env var:
+// export OTEL_EXPORTER_OTLP_ENDPOINT=http://prod-collector:4317
+```
+
+#### WithResourceAttributes
+
+Sets resource attributes attached to all spans (metadata about your service).
+
+```go
+instrumentation.WithResourceAttributes("key1", "value1", "key2", "value2")
+```
+
+**Common attributes:**
+- `environment`: `"production"`, `"staging"`, `"development"`
+- `region`: `"us-west"`, `"eu-central"`, `"ap-southeast"`
+- `cluster`: `"cluster-a"`, `"cluster-b"`
+- `version`: `"v2.1.0"`
+
+**Example:**
+```go
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "my-service", "v1.0.0", logger,
+    instrumentation.WithResourceAttributes(
+        "environment", "production",
+        "region", "us-west-2",
+        "cluster", "main-cluster",
+    ),
+)
+```
+
+---
+
+## Environment Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OTLP collector endpoint (e.g., `http://localhost:4317`) |
+
+**Example:**
+```bash
+# Development
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+
+# Production
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.prod.example.com:4317
+```
+
+### Environment Override Behavior
+
+```go
+// Code sets default
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "service", "v1", logger,
+    instrumentation.WithDefaultOTLPEndpoint("http://dev-collector:4317"),
+)
+
+// Environment variable OVERRIDES the default
+// export OTEL_EXPORTER_OTLP_ENDPOINT=http://prod-collector:4317
+// Result: Uses http://prod-collector:4317
+```
+
+### No Endpoint = No Export
+
+If no endpoint is configured (neither in code nor env), tracing setup succeeds but traces are not exported:
+
+```go
+// No endpoint configured
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1", logger)
+// err == nil, but traces won't be exported (graceful degradation)
+```
+
+---
+
+## Combined Logging and Tracing
+
+### GetLogSpan - Unified Observability
+
+The `GetLogSpan` function creates both a span and a logger with trace context:
+
+```go
+ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
+defer end()
+
+spanLogger.Info("Processing request", "user_id", 123)
+spanLogger.Error(err, "Failed to process", "retry_count", 3)
+```
+
+**What happens:**
+1. Creates OpenTelemetry span
+2. Creates logger with `trace_id` and `span_id` fields
+3. Returns `SpanLogger` that combines both
+4. `defer end()` closes the span
+
+### SpanLogger Methods
+
+#### Info, Debug, Warn
+
+```go
+spanLogger.Info("message", "key", "value")
+spanLogger.Debug("debug message", "details", data)
+spanLogger.Warn("warning message", "reason", "timeout")
+```
+
+**Effect:**
+- Logs to logger with trace context
+- Adds event to OpenTelemetry span
+
+#### Error
+
+```go
+if err != nil {
+    spanLogger.Error(err, "operation failed", "input", userInput)
+}
+```
+
+**Effect:**
+- Logs error with trace context
+- Records error in OpenTelemetry span
+
+#### SetAttributes
+
+```go
+spanLogger.SetAttributes(
+    attribute.String("custom_field", "value"),
+    attribute.Int("count", 42),
+)
+```
+
+**Effect:**
+- Adds attributes to OpenTelemetry span only (not logged)
+
+---
+
+## Usage Patterns
+
+### Basic Operation Tracing
+
+```go
+func processOrder(ctx context.Context, orderID string) error {
+    ctx, logger, end := instrumentation.GetLogSpan(ctx, "processOrder")
+    defer end()
+
+    logger.Info("Processing order", "order_id", orderID)
+
+    // Your business logic
+    if err := validateOrder(ctx, orderID); err != nil {
+        logger.Error(err, "Order validation failed")
+        return err
+    }
+
+    logger.Info("Order processed successfully")
+    return nil
+}
+```
+
+### Nested Operations
+
+```go
+func processOrder(ctx context.Context, orderID string) error {
+    ctx, logger, end := instrumentation.GetLogSpan(ctx, "processOrder")
+    defer end()
+
+    logger.Info("Processing order", "order_id", orderID)
+
+    // Nested operation creates child span
+    if err := chargePayment(ctx, orderID); err != nil {
+        return err
+    }
+
+    if err := shipOrder(ctx, orderID); err != nil {
+        return err
+    }
+
+    return nil
+}
+
+func chargePayment(ctx context.Context, orderID string) error {
+    ctx, logger, end := instrumentation.GetLogSpan(ctx, "chargePayment")
+    defer end()
+
+    logger.Info("Charging payment", "order_id", orderID)
+    // Payment logic
+    return nil
+}
+```
+
+**Trace hierarchy:**
+```
+processOrder (parent span)
+├── chargePayment (child span)
+└── shipOrder (child span)
+```
+
+### HTTP Client Tracing
+
+```go
+import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+func callExternalAPI(ctx context.Context) error {
+    ctx, logger, end := instrumentation.GetLogSpan(ctx, "callExternalAPI")
+    defer end()
+
+    // Wrap HTTP client with otelhttp for automatic trace propagation
+    client := &http.Client{
+        Transport: otelhttp.NewTransport(http.DefaultTransport),
+    }
+
+    req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.example.com/data", nil)
+    resp, err := client.Do(req)
+    if err != nil {
+        logger.Error(err, "API call failed")
+        return err
+    }
+    defer resp.Body.Close()
+
+    logger.Info("API call succeeded", "status", resp.StatusCode)
+    return nil
+}
+```
+
+### HTTP Server Tracing
+
+```go
+import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+func main() {
+    // Initialize instrumentation
+    shutdown, _ := instrumentation.SetupOTelSDKWithOptions(ctx, "api-server", "v1", logger)
+    defer shutdown(ctx)
+
+    // Wrap HTTP handler with otelhttp for automatic trace extraction
+    mux := http.NewServeMux()
+    mux.HandleFunc("/api/orders", handleOrders)
+
+    handler := otelhttp.NewHandler(mux, "api-server")
+    http.ListenAndServe(":8080", handler)
+}
+
+func handleOrders(w http.ResponseWriter, r *http.Request) {
+    // Context already has trace from otelhttp middleware
+    ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "handleOrders")
+    defer end()
+
+    logger.Info("Handling order request", "method", r.Method)
+    // Your handler logic
+}
+```
+
+---
+
+## Testing
+
+### Testing with Instrumentation
+
+```go
+func TestProcessOrder(t *testing.T) {
+    ctx := context.Background()
+
+    // Create test logger
+    logr := logger.CreateLogger()
+
+    // Setup instrumentation without exporter (testing mode)
+    shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+        ctx, "test-service", "v1.0.0", logr,
+        // No endpoint = no export, but tracing still works
+    )
+    require.NoError(t, err)
+    defer shutdown(ctx)
+
+    // Test your traced functions
+    err = processOrder(ctx, "order-123")
+    assert.NoError(t, err)
+}
+```
+
+### Testing with Custom Endpoint
+
+```go
+func TestWithCollector(t *testing.T) {
+    ctx := context.Background()
+    logr := logger.CreateLogger()
+
+    // Override endpoint for testing
+    t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://test-collector:4317")
+
+    shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+        ctx, "test-service", "v1.0.0", logr,
+    )
+    require.NoError(t, err)
+    defer shutdown(ctx)
+
+    // Your tests
+}
+```
+
+---
+
+## Migration Guide
+
+### From SetupOTelSDK (Deprecated)
+
+**Before:**
+```go
+shutdown, err := instrumentation.SetupOTelSDK(
+    ctx, "service", "v1", logger,
+    "key1", "value1",
+    "key2", "value2",
+)
+```
+
+**After (Functional Options):**
+```go
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "service", "v1", logger,
+    instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+    instrumentation.WithResourceAttributes("key1", "value1", "key2", "value2"),
+)
+```
+
+**After (Config-Based):**
+```go
+config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
+shutdown, err := instrumentation.SetupOTelSDKFrom(
+    ctx, "service", "v1", logger, config,
+    "key1", "value1",
+    "key2", "value2",
+)
+```
+
+---
+
+## Best Practices
+
+### 1. Always Defer Shutdown
+
+```go
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1", logger)
+if err != nil {
+    return err
+}
+defer shutdown(ctx)  // ✅ Ensures traces are flushed
+```
+
+### 2. Use GetLogSpan for All Operations
+
+```go
+// ✅ Good - unified logging and tracing
+ctx, logger, end := instrumentation.GetLogSpan(ctx, "operation")
+defer end()
+logger.Info("Processing")
+
+// ❌ Bad - separate logging and tracing
+span := trace.SpanFromContext(ctx)
+logger := logr.FromContext(ctx)
+```
+
+### 3. Use Descriptive Span Names
+
+```go
+// ✅ Good - specific operation names
+instrumentation.GetLogSpan(ctx, "database.query.users")
+instrumentation.GetLogSpan(ctx, "payment.charge")
+instrumentation.GetLogSpan(ctx, "email.send")
+
+// ❌ Bad - generic names
+instrumentation.GetLogSpan(ctx, "process")
+instrumentation.GetLogSpan(ctx, "handle")
+```
+
+### 4. Add Meaningful Attributes
+
+```go
+// ✅ Good - business context
+spanLogger.Info("Order created",
+    "order_id", order.ID,
+    "customer_id", order.CustomerID,
+    "total_amount", order.Total,
+)
+
+// ❌ Bad - technical noise only
+spanLogger.Info("Database insert completed")
+```
+
+### 5. Set Defaults with Env Override
+
+```go
+// ✅ Good - default for dev, env var for prod
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "service", "v1", logger,
+    instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+)
+// Production: export OTEL_EXPORTER_OTLP_ENDPOINT=https://prod-collector:4317
+```
+
+---
+
+## Troubleshooting
+
+### Traces Not Appearing
+
+**Problem:** No traces in your collector/backend.
+
+**Solutions:**
+1. Check endpoint configuration:
+   ```bash
+   echo $OTEL_EXPORTER_OTLP_ENDPOINT
+   ```
+
+2. Verify endpoint is reachable:
+   ```bash
+   curl http://localhost:4317
+   ```
+
+3. Check logs for export errors:
+   ```go
+   shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1", logger)
+   // Look for "failed to create OTLP trace exporter" in logs
+   ```
+
+4. Ensure shutdown is called:
+   ```go
+   defer shutdown(ctx)  // Flushes pending traces
+   ```
+
+### Environment Variable Not Working
+
+**Problem:** `OTEL_EXPORTER_OTLP_ENDPOINT` is ignored.
+
+**Solution:** Ensure you're using the new API:
+
+```go
+// ❌ Wrong - deprecated API, different behavior
+instrumentation.SetupOTelSDK(...)
+
+// ✅ Correct - new API with env override
+instrumentation.SetupOTelSDKWithOptions(...)
+```
+
+### Missing Trace Context in Logs
+
+**Problem:** Logs don't show `trace_id` and `span_id`.
+
+**Solution:** Use `GetLogSpan` instead of separate logger:
+
+```go
+// ❌ Wrong
+logger := logger.MustLogrFromContext(ctx)
+logger.Info("message")
+
+// ✅ Correct
+ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
+defer end()
+spanLogger.Info("message")  // Includes trace_id and span_id
+```
+
+---
+
+## Advanced Topics
+
+### Custom Resource Attributes
+
+```go
+shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "service", "v1", logger,
+    instrumentation.WithResourceAttributes(
+        "service.namespace", "production",
+        "service.instance.id", hostname,
+        "deployment.environment", "us-west-2",
+        "k8s.pod.name", podName,
+        "k8s.namespace.name", namespace,
+    ),
+)
+```
+
+### Multiple Services in Same Process
+
+```go
+// Service 1
+shutdown1, _ := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "api-gateway", "v1", logger,
+    instrumentation.WithDefaultOTLPEndpoint("http://collector:4317"),
+)
+defer shutdown1(ctx)
+
+// Service 2 uses global tracer set by first setup
+// Just use GetLogSpan normally
+```
+
+### Sampling Configuration
+
+OpenTelemetry SDK uses environment variables for sampling:
+
+```bash
+# Always sample
+export OTEL_TRACES_SAMPLER=always_on
+
+# Never sample
+export OTEL_TRACES_SAMPLER=always_off
+
+# Probabilistic sampling (10%)
+export OTEL_TRACES_SAMPLER=traceidratio
+export OTEL_TRACES_SAMPLER_ARG=0.1
+```
+
+---
+
+## See Also
+
+- [Logger Configuration API](./logger-configuration-api.md) - Logging configuration
+- [OpenTelemetry Go Documentation](https://opentelemetry.io/docs/languages/go/)
+- [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/)
