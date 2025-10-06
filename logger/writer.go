@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -14,30 +14,34 @@ import (
 )
 
 var (
-	// infoLevels defines the log levels that should be written to the info writer
-	infoLevels = []zerolog.Level{
-		zerolog.TraceLevel,
-		zerolog.DebugLevel,
-		zerolog.InfoLevel,
-	}
-	// errorLevels defines the log levels that should be written to the error writer
-	errorLevels = []zerolog.Level{
-		zerolog.WarnLevel,
-		zerolog.ErrorLevel,
-		zerolog.FatalLevel,
-		zerolog.PanicLevel,
-	}
+	// callerMarshalMutex protects global zerolog.CallerMarshalFunc modification
+	callerMarshalMutex sync.Mutex
 )
 
-// SpecificLevelWriter routes logs to a writer based on log level
+// LevelComparator is a function that determines if a log level should be written
+type LevelComparator func(zerolog.Level) bool
+
+// isInfoLevelOrBelow returns true for info-level and below (Trace, Debug, Info)
+// These levels are routed to the info writer in file mode
+func isInfoLevelOrBelow(level zerolog.Level) bool {
+	return level < zerolog.WarnLevel
+}
+
+// isWarnLevelOrAbove returns true for warning-level and above (Warn, Error, Fatal, Panic)
+// These levels are routed to the error writer in file mode
+func isWarnLevelOrAbove(level zerolog.Level) bool {
+	return level >= zerolog.WarnLevel
+}
+
+// SpecificLevelWriter routes logs to a writer based on log level comparison
 type SpecificLevelWriter struct {
 	io.Writer
-	Levels []zerolog.Level
+	ShouldWrite LevelComparator
 }
 
 // WriteLevel implements zerolog.LevelWriter interface
 func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, error) {
-	if slices.Contains(w.Levels, level) {
+	if w.ShouldWrite(level) {
 		return w.Write(p)
 	}
 	return len(p), nil
@@ -96,7 +100,9 @@ func GetMultiLevelWriter() io.Writer {
 	return GetMultiLevelWriterWithConfig(config)
 }
 
-// GetMultiLevelWriterWithConfig creates multi-level writer from complete config
+// GetMultiLevelWriterWithConfig creates writer from complete config
+// In ConsoleMode: returns direct writer (backward compatible with old GetStderrWriter)
+// In FileMode: returns multi-level writer with separate info/error files
 func GetMultiLevelWriterWithConfig(config Config) io.Writer {
 	// Validate FileMode sink configuration
 	if config.Sink.Mode == FileMode {
@@ -111,29 +117,22 @@ func GetMultiLevelWriterWithConfig(config Config) io.Writer {
 				"fallback", fallbackDir)
 			config.Sink.Dir = fallbackDir
 		}
+
+		// FileMode: use multi-level writer for separate info/error files
+		infoWriter := createLumberjackWriter(config.Sink, logLevelInfo)
+		errorWriter := createLumberjackWriter(config.Sink, logLevelError)
+		return createMultiLevelWriter(infoWriter, errorWriter)
 	}
 
-	infoWriter, errorWriter := createWritersForSink(config.Sink, config.Format)
-	return createMultiLevelWriter(infoWriter, errorWriter)
+	// ConsoleMode: return direct writer (backward compatible)
+	return GetWriterFromFormat(config.Format)
 }
 
-// createWritersForSink determines writers based on sink mode
-func createWritersForSink(sink SinkConfig, format FormatConfig) (info, error io.Writer) {
-	if sink.Mode == FileMode {
-		// File mode: separate files for info and error
-		return createLumberjackWriter(sink, logLevelInfo),
-			createLumberjackWriter(sink, logLevelError)
-	}
-	// Console mode: same writer for both (format-aware)
-	writer := GetWriterFromFormat(format)
-	return writer, writer
-}
-
-// createMultiLevelWriter assembles the multi-level writer with predefined level groups
+// createMultiLevelWriter assembles the multi-level writer with level comparators
 func createMultiLevelWriter(infoWriter, errorWriter io.Writer) io.Writer {
 	return zerolog.MultiLevelWriter(
-		SpecificLevelWriter{Writer: infoWriter, Levels: infoLevels},
-		SpecificLevelWriter{Writer: errorWriter, Levels: errorLevels},
+		SpecificLevelWriter{Writer: infoWriter, ShouldWrite: isInfoLevelOrBelow},
+		SpecificLevelWriter{Writer: errorWriter, ShouldWrite: isWarnLevelOrAbove},
 	)
 }
 
@@ -163,8 +162,13 @@ func createLumberjackWriter(sink SinkConfig, level string) io.Writer {
 	}
 }
 
-// setCallerMarshalFunc configures caller directory display level
+// setCallerMarshalFunc configures caller directory display level.
+// The mutex protects the global zerolog.CallerMarshalFunc from concurrent modifications.
+// This ensures thread-safe updates when multiple goroutines might initialize loggers simultaneously.
 func setCallerMarshalFunc(callerDirLvl int) {
+	callerMarshalMutex.Lock()
+	defer callerMarshalMutex.Unlock()
+
 	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
 		short := file
 		dirsNum := callerDirLvl

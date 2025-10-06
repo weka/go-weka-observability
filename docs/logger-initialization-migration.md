@@ -40,7 +40,7 @@ import (
 )
 
 // Create logger from config
-logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverride())
+logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
 
 // Store in context
 ctx = logger.ContextWithLogr(ctx, logr)
@@ -81,7 +81,7 @@ ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "my-service")
 ```go
 import "github.com/weka/go-weka-observability/logger"
 
-logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverride())
+logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
 ctx = logger.ContextWithLogr(ctx, logr)
 logger := logr.WithName("my-service")
 ```
@@ -96,7 +96,7 @@ import (
     "github.com/weka/go-weka-observability/logger"
 )
 
-zlog := logger.NewZeroLoggerWithConfig(logger.LogConfig{
+zlog := logger.NewZeroLoggerWithConfig(logger.Config{
     OutputMode:  logger.FileMode,
     LogDir:      "/var/log",
     LogFileName: "app.log",
@@ -109,13 +109,15 @@ ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "my-service")
 ```go
 import "github.com/weka/go-weka-observability/logger"
 
-logr := logger.CreateLoggerFrom(logger.LogConfig{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log",
-    LogFileName: "app.log",
-    MaxLogSize:  100,
-    MaxLogFiles: 5,
-    MaxAge:      28,
+logr := logger.CreateLoggerFrom(logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:       logger.FileMode,
+        Dir:        "/var/log",
+        FileName:   "app.log",
+        MaxSizeMB:  100,
+        MaxFiles:   5,
+        MaxAgeDays: 28,
+    },
 })
 ctx = logger.ContextWithLogr(ctx, logr)
 logger := logr.WithName("my-service")
@@ -139,7 +141,7 @@ ctx, _ := instrumentation.GetLoggerForContext(ctx, &existingLogger, "")
 ```go
 import "github.com/weka/go-weka-observability/logger"
 
-logr := logger.CreateLoggerFrom(logger.DefaultLogConfig()).WithName("my-service")
+logr := logger.CreateLoggerFrom(logger.DefaultConfig()).WithName("my-service")
 ctx = logger.ContextWithLogr(ctx, logr)
 ```
 
@@ -157,7 +159,7 @@ import "github.com/weka/go-weka-observability/logger"
 log, err := logger.LogrFromContext(ctx)
 if err != nil {
     // Handle missing logger - create default or return error
-    log = logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverride())
+    log = logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
     ctx = logger.ContextWithLogr(ctx, log)
 }
 ```
@@ -232,7 +234,7 @@ import (
 
 func initializeOTel(ctx context.Context, tracerName, version string) (func(), error) {
     // Create root logger (respects LOG_MODE, LOG_DIR env vars)
-    logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverride())
+    logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
     ctx = logger.ContextWithLogr(ctx, logr)
 
     // Setup OTel with logger directly

@@ -10,7 +10,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-logr/zerologr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 
@@ -29,8 +28,6 @@ func init() {
 	if os.Getenv("LOG_CALLER_DIR_LVL") == "" {
 		_ = os.Setenv("LOG_CALLER_DIR_LVL", "1")
 	}
-
-	logger.SetCallerDirDisplayLevel()
 }
 
 // HTTPServer demonstrates an HTTP server that receives trace context from clients
@@ -344,8 +341,9 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize root logger and put it into context
-	logr := zerologr.New(logger.NewZeroLogger())
-	ctx, ctxLogger := instrumentation.GetLoggerForContext(ctx, &logr, "HTTPTracingExample")
+	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides()).WithName("HTTPTracingExample")
+	ctx = logger.ContextWithLogr(ctx, logr)
+	ctxLogger := logger.MustLogrFromContext(ctx)
 
 	// Setup OpenTelemetry SDK
 	shutdown, err := instrumentation.SetupOTelSDK(ctx, "http-tracing-example", "v1.0.0", ctxLogger)

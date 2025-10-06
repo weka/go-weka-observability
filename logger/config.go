@@ -91,15 +91,20 @@ func DefaultConfig() Config {
 // NewConfigFromEnv creates Config with environment overrides.
 // All fields with envconfig tags are overridable via LOG_* environment variables.
 // Since envconfig doesn't automatically walk nested structs, we process Sink and Format separately.
+// If environment variable processing fails, defaults are used as fallback.
 func NewConfigFromEnv(defaultConfig Config) Config {
 	// Process sink configuration
 	if err := envconfig.Process("LOG", &defaultConfig.Sink); err != nil {
-		slog.Warn("failed to process LOG_* environment variables for sink", "error", err)
+		slog.Warn("failed to process LOG_* environment variables for sink, using defaults",
+			"error", err,
+			"defaults", defaultConfig.Sink)
 	}
 
 	// Process format configuration
 	if err := envconfig.Process("LOG", &defaultConfig.Format); err != nil {
-		slog.Warn("failed to process LOG_* environment variables for format", "error", err)
+		slog.Warn("failed to process LOG_* environment variables for format, using defaults",
+			"error", err,
+			"defaults", defaultConfig.Format)
 	}
 
 	return defaultConfig

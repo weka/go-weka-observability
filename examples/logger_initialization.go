@@ -61,7 +61,7 @@ func newWayFile() {
 
 	// Create file logger using functional options
 	logr := zerologger.CreateLogger(
-		zerologger.WithFileSink("/tmp", "example.log"),
+		zerologger.WithFileSink("test-logs", "example.log"),
 		zerologger.WithRotation(10, 2, 1),
 		zerologger.WithInfoLevel(),
 	)
@@ -69,8 +69,8 @@ func newWayFile() {
 	ctx = zerologger.ContextWithLogr(ctx, logr)
 
 	logger := zerologger.MustLogrFromContext(ctx)
-	logger.Info("This goes to /tmp/example.log")
-	fmt.Println("✅ File: Logger writing to /tmp/example.log")
+	logger.Info("This goes to test-logs/example.log")
+	fmt.Println("✅ File: Logger writing to test-logs/example.log")
 }
 
 // Example: New way - Graceful fallback

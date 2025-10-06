@@ -4,14 +4,13 @@ import (
 	"context"
 	"os"
 
-	"github.com/go-logr/zerologr"
-
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/go-weka-observability/logger"
 )
 
 func init() {
-	// set default log level and format
+	// Set default log level and format via environment variables
+	// These are automatically picked up by NewDefaultConfigWithEnvOverrides()
 	if os.Getenv("LOG_LEVEL") == "" {
 		os.Setenv("LOG_LEVEL", "0")
 	}
@@ -21,8 +20,6 @@ func init() {
 	if os.Getenv("LOG_CALLER_DIR_LVL") == "" {
 		os.Setenv("LOG_CALLER_DIR_LVL", "1")
 	}
-
-	logger.SetCallerDirDisplayLevel()
 }
 
 func main() {
@@ -41,9 +38,12 @@ func main() {
 		rootKeysAndValues = append(rootKeysAndValues, k, v)
 	}
 
-	// initialize root logger and put it into context
-	logr := zerologr.New(logger.NewZeroLogger())
-	ctx, ctxLogger := instrumentation.GetLoggerForContext(ctx, &logr, "BasicExample", rootKeysAndValues...)
+	// Initialize logger with environment configuration and store in context
+	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides()).
+		WithName("BasicExample").
+		WithValues(rootKeysAndValues...)
+	ctx = logger.ContextWithLogr(ctx, logr)
+	ctxLogger := logger.MustLogrFromContext(ctx)
 
 	// Setup OpenTelemetry SDK with custom resource attributes
 	// Resource attributes are metadata attached to all spans from this service
