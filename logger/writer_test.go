@@ -2,6 +2,7 @@ package logger_test
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"testing"
 
@@ -216,38 +217,185 @@ func TestSpecificLevelWriter_WriteLevel(t *testing.T) {
 	})
 }
 
-// TestBackwardCompatibility_ConsoleModeUsesDirectWriter ensures the new config-based
-// logger initialization is backward compatible with the old deprecated way
-func TestBackwardCompatibility_ConsoleModeUsesDirectWriter(t *testing.T) {
-	t.Run("old way returns direct stderr writer", func(t *testing.T) {
-		// Old deprecated way: GetStderrWriter()
-		oldWriter := logger.GetStderrWriter()
+// TestBackwardCompatibility_GetMultiLevelWriter ensures GetMultiLevelWriter preserves
+// the old stdout/stderr split behavior for backward compatibility
+func TestBackwardCompatibility_GetMultiLevelWriter(t *testing.T) {
+	t.Run("GetMultiLevelWriter routes to stdout and stderr", func(t *testing.T) {
+		// GetMultiLevelWriter should return a multi-level writer that splits
+		// info/debug/trace → stdout and warn/error/fatal/panic → stderr
+		writer := logger.GetMultiLevelWriter()
+
+		// Should NOT be os.Stderr directly (that would be GetStderrWriter behavior)
+		assert.NotEqual(t, os.Stderr, writer,
+			"GetMultiLevelWriter should return multi-level writer, not direct stderr")
+
+		// Should NOT be os.Stdout directly either
+		assert.NotEqual(t, os.Stdout, writer,
+			"GetMultiLevelWriter should return multi-level writer, not direct stdout")
+
+		// The writer should be a MultiLevelWriter
+		assert.NotNil(t, writer, "Writer should not be nil")
+	})
+}
+
+// TestBackwardCompatibility_ConsoleModeUsesMultiLevelWriter ensures the new config-based
+// logger initialization matches GetMultiLevelWriter behavior
+func TestBackwardCompatibility_ConsoleModeUsesMultiLevelWriter(t *testing.T) {
+	t.Run("GetStderrWriter returns direct stderr writer", func(t *testing.T) {
+		// GetStderrWriter is for stderr-only output
+		writer := logger.GetStderrWriter()
 
 		// Should return os.Stderr directly (for default JSON format)
-		assert.Equal(t, os.Stderr, oldWriter,
-			"Old GetStderrWriter should return os.Stderr directly")
+		assert.Equal(t, os.Stderr, writer,
+			"GetStderrWriter should return os.Stderr directly")
 	})
 
-	t.Run("new way with console mode returns same direct writer", func(t *testing.T) {
+	t.Run("GetMultiLevelWriterWithConfig in ConsoleMode uses multi-level writer", func(t *testing.T) {
 		// New way: GetMultiLevelWriterWithConfig with ConsoleMode
 		config := logger.Config{
 			Sink:   logger.DefaultSinkConfig(), // ConsoleMode by default
 			Format: logger.DefaultFormatConfig(),
 		}
-		newWriter := logger.GetMultiLevelWriterWithConfig(config)
+		writer := logger.GetMultiLevelWriterWithConfig(config)
 
-		// Should also return os.Stderr directly (backward compatible)
-		assert.Equal(t, os.Stderr, newWriter,
-			"New GetMultiLevelWriterWithConfig with ConsoleMode should return os.Stderr directly")
+		// Should return multi-level writer (NOT direct stderr)
+		assert.NotEqual(t, os.Stderr, writer,
+			"GetMultiLevelWriterWithConfig with ConsoleMode should return multi-level writer, not direct stderr")
+		assert.NotEqual(t, os.Stdout, writer,
+			"GetMultiLevelWriterWithConfig with ConsoleMode should return multi-level writer, not direct stdout")
+		assert.NotNil(t, writer, "Writer should not be nil")
 	})
 
-	t.Run("both ways produce identical writers", func(t *testing.T) {
-		oldWriter := logger.GetStderrWriter()
-		newWriter := logger.GetMultiLevelWriterWithConfig(logger.DefaultConfig())
+	t.Run("GetMultiLevelWriterWithConfig routes info to stdout", func(t *testing.T) {
+		// Test ACTUAL GetMultiLevelWriterWithConfig by capturing real stdout
+		config := logger.Config{
+			Sink: logger.SinkConfig{
+				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
+			},
+			Format: logger.FormatConfig{
+				Format: logger.LogFormatJSON,
+				Level:  zerolog.TraceLevel,
+			},
+		}
 
-		// Both should be the same
-		assert.Equal(t, oldWriter, newWriter,
-			"Old and new ways should produce identical writers for backward compatibility")
+		// Capture stdout using os.Pipe
+		origStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		defer func() {
+			os.Stdout = origStdout
+		}()
+
+		// Create logger with ACTUAL GetMultiLevelWriterWithConfig
+		writer := logger.GetMultiLevelWriterWithConfig(config)
+		log := zerolog.New(writer).Level(config.Format.Level).With().Timestamp().Logger()
+
+		// Write info log (should go to stdout)
+		testMsg := "test_info_message_12345"
+		log.Info().Msg(testMsg)
+
+		// Close write end and read captured output
+		require.NoError(t, w.Close())
+		output, err := io.ReadAll(r)
+		require.NoError(t, err)
+
+		// Verify the message was routed to stdout
+		assert.Contains(t, string(output), testMsg,
+			"Info message should be routed to stdout")
+	})
+
+	t.Run("GetMultiLevelWriterWithConfig routes errors to stderr", func(t *testing.T) {
+		// Test ACTUAL GetMultiLevelWriterWithConfig by capturing real stderr
+		config := logger.Config{
+			Sink: logger.SinkConfig{
+				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
+			},
+			Format: logger.FormatConfig{
+				Format: logger.LogFormatJSON,
+				Level:  zerolog.TraceLevel,
+			},
+		}
+
+		// Capture stderr using os.Pipe
+		origStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+		defer func() {
+			os.Stderr = origStderr
+		}()
+
+		// Create logger with ACTUAL GetMultiLevelWriterWithConfig
+		writer := logger.GetMultiLevelWriterWithConfig(config)
+		log := zerolog.New(writer).Level(config.Format.Level).With().Timestamp().Logger()
+
+		// Write error log (should go to stderr)
+		testMsg := "test_error_message_67890"
+		log.Error().Msg(testMsg)
+
+		// Close write end and read captured output
+		require.NoError(t, w.Close())
+		output, err := io.ReadAll(r)
+		require.NoError(t, err)
+
+		// Verify the message was routed to stderr
+		assert.Contains(t, string(output), testMsg,
+			"Error message should be routed to stderr")
+	})
+
+	t.Run("GetMultiLevelWriter and GetMultiLevelWriterWithConfig route identically", func(t *testing.T) {
+		// Test that both functions produce identical routing behavior
+		testMsg := "identical_routing_test_99999"
+
+		// Test GetMultiLevelWriter - capture stdout
+		origStdout1 := os.Stdout
+		r1, w1, _ := os.Pipe()
+		os.Stdout = w1
+		defer func() {
+			os.Stdout = origStdout1
+			_ = os.Unsetenv("LOG_FORMAT")
+		}()
+
+		require.NoError(t, os.Setenv("LOG_FORMAT", "json"))
+		writer1 := logger.GetMultiLevelWriter()
+		log1 := zerolog.New(writer1).Level(zerolog.TraceLevel).With().Timestamp().Logger()
+		log1.Info().Msg(testMsg)
+
+		require.NoError(t, w1.Close())
+		os.Stdout = origStdout1
+		output1, err := io.ReadAll(r1)
+		require.NoError(t, err)
+
+		// Test GetMultiLevelWriterWithConfig - capture stdout
+		origStdout2 := os.Stdout
+		r2, w2, _ := os.Pipe()
+		os.Stdout = w2
+		defer func() {
+			os.Stdout = origStdout2
+		}()
+
+		config := logger.Config{
+			Sink: logger.SinkConfig{
+				Mode: logger.ConsoleMode,
+			},
+			Format: logger.FormatConfig{
+				Format: logger.LogFormatJSON,
+				Level:  zerolog.TraceLevel,
+			},
+		}
+		writer2 := logger.GetMultiLevelWriterWithConfig(config)
+		log2 := zerolog.New(writer2).Level(config.Format.Level).With().Timestamp().Logger()
+		log2.Info().Msg(testMsg)
+
+		require.NoError(t, w2.Close())
+		os.Stdout = origStdout2
+		output2, err2 := io.ReadAll(r2)
+		require.NoError(t, err2)
+
+		// Both should have routed the message to stdout
+		assert.Contains(t, string(output1), testMsg,
+			"GetMultiLevelWriter should route info to stdout")
+		assert.Contains(t, string(output2), testMsg,
+			"GetMultiLevelWriterWithConfig should route info to stdout")
 	})
 }
 

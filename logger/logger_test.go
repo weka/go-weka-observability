@@ -2,6 +2,7 @@ package logger_test
 
 import (
 	"bytes"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -871,5 +872,129 @@ func TestSetCallerDirDisplayLevel_DeprecatedFunction(t *testing.T) {
 			assert.Contains(t, string(content), "logger_test.go:")
 		})
 	}
+}
+
+func TestNewZeroLoggerWithConfig_ConsoleModeRoutesToStdoutStderr(t *testing.T) {
+	t.Run("NewZeroLoggerWithConfig routes info to stdout", func(t *testing.T) {
+		// Test ACTUAL NewZeroLoggerWithConfig by capturing real stdout
+		config := logger.Config{
+			Sink: logger.SinkConfig{
+				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
+			},
+			Format: logger.FormatConfig{
+				Format: logger.LogFormatJSON,
+				Level:  zerolog.TraceLevel,
+			},
+		}
+
+		// Capture stdout using os.Pipe
+		origStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		defer func() {
+			os.Stdout = origStdout
+		}()
+
+		// Create logger with ACTUAL NewZeroLoggerWithConfig
+		log := logger.NewZeroLoggerWithConfig(config)
+
+		// Write info log (should go to stdout)
+		testMsg := "newzerologger_info_test_11111"
+		log.Info().Msg(testMsg)
+
+		// Close write end and read captured output
+		require.NoError(t, w.Close())
+		output, err := io.ReadAll(r)
+		require.NoError(t, err)
+
+		// Verify the message was routed to stdout
+		assert.Contains(t, string(output), testMsg,
+			"NewZeroLoggerWithConfig should route info to stdout")
+	})
+
+	t.Run("NewZeroLoggerWithConfig routes errors to stderr", func(t *testing.T) {
+		// Test ACTUAL NewZeroLoggerWithConfig by capturing real stderr
+		config := logger.Config{
+			Sink: logger.SinkConfig{
+				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
+			},
+			Format: logger.FormatConfig{
+				Format: logger.LogFormatJSON,
+				Level:  zerolog.TraceLevel,
+			},
+		}
+
+		// Capture stderr using os.Pipe
+		origStderr := os.Stderr
+		r, w, _ := os.Pipe()
+		os.Stderr = w
+		defer func() {
+			os.Stderr = origStderr
+		}()
+
+		// Create logger with ACTUAL NewZeroLoggerWithConfig
+		log := logger.NewZeroLoggerWithConfig(config)
+
+		// Write error log (should go to stderr)
+		testMsg := "newzerologger_error_test_22222"
+		log.Error().Msg(testMsg)
+
+		// Close write end and read captured output
+		require.NoError(t, w.Close())
+		output, err := io.ReadAll(r)
+		require.NoError(t, err)
+
+		// Verify the message was routed to stderr
+		assert.Contains(t, string(output), testMsg,
+			"NewZeroLoggerWithConfig should route error to stderr")
+	})
+
+	t.Run("NewZeroLoggerWithConfig with FileMode writes to files", func(t *testing.T) {
+		// Test FileMode routing to files
+		tempDir := t.TempDir()
+		config := logger.Config{
+			Sink: logger.SinkConfig{
+				Mode:       logger.FileMode,
+				Dir:        tempDir,
+				FileName:   "test.log",
+				MaxSizeMB:  10,
+				MaxFiles:   3,
+				MaxAgeDays: 7,
+			},
+			Format: logger.FormatConfig{
+				Format: logger.LogFormatJSON,
+				Level:  zerolog.TraceLevel,
+			},
+		}
+
+		// Create logger
+		log := logger.NewZeroLoggerWithConfig(config)
+
+		// Write info and error logs
+		infoMsg := "file_info_test_33333"
+		errorMsg := "file_error_test_44444"
+		log.Info().Msg(infoMsg)
+		log.Error().Msg(errorMsg)
+
+		// Check that files were created
+		infoFile := filepath.Join(tempDir, "test.log")
+		errorFile := filepath.Join(tempDir, "test-error.log")
+
+		// Read info file
+		infoContent, err := os.ReadFile(infoFile)
+		require.NoError(t, err)
+		assert.Contains(t, string(infoContent), infoMsg,
+			"Info log should be in info file")
+		assert.NotContains(t, string(infoContent), errorMsg,
+			"Error log should NOT be in info file")
+
+		// Read error file
+		errorContent, err := os.ReadFile(errorFile)
+		require.NoError(t, err)
+		assert.Contains(t, string(errorContent), errorMsg,
+			"Error log should be in error file")
+		assert.NotContains(t, string(errorContent), infoMsg,
+			"Info log should NOT be in error file")
+	})
 }
 
