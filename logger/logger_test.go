@@ -575,6 +575,173 @@ func TestCreateLogger_WithMultipleOptions(t *testing.T) {
 	assert.Equal(t, 28, config.Sink.MaxAgeDays)
 }
 
+// Test parsing functions
+
+func TestParseOutputMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      logger.OutputMode
+		wantError bool
+	}{
+		{
+			name:      "valid console",
+			input:     "console",
+			want:      logger.ConsoleMode,
+			wantError: false,
+		},
+		{
+			name:      "valid file",
+			input:     "file",
+			want:      logger.FileMode,
+			wantError: false,
+		},
+		{
+			name:      "invalid mode",
+			input:     "invalid",
+			want:      logger.ConsoleMode, // returns default
+			wantError: true,
+		},
+		{
+			name:      "empty string",
+			input:     "",
+			want:      logger.ConsoleMode,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := logger.ParseOutputMode(tt.input)
+			if tt.wantError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid output mode")
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseLogFormat(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      logger.LogFormat
+		wantError bool
+	}{
+		{
+			name:      "valid raw",
+			input:     "raw",
+			want:      logger.LogFormatRaw,
+			wantError: false,
+		},
+		{
+			name:      "valid json",
+			input:     "json",
+			want:      logger.LogFormatJSON,
+			wantError: false,
+		},
+		{
+			name:      "valid plain",
+			input:     "plain",
+			want:      logger.LogFormatPlain,
+			wantError: false,
+		},
+		{
+			name:      "invalid format",
+			input:     "xml",
+			want:      logger.LogFormatJSON, // returns default
+			wantError: true,
+		},
+		{
+			name:      "empty string",
+			input:     "",
+			want:      logger.LogFormatJSON,
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := logger.ParseLogFormat(tt.input)
+			if tt.wantError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid log format")
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetStderrWriter_InvalidLogFormat(t *testing.T) {
+	// Test that invalid LOG_FORMAT values are handled gracefully and fallback to default
+	if err := os.Setenv("LOG_FORMAT", "invalid_format"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LOG_FORMAT"); err != nil {
+			t.Logf("failed to unset LOG_FORMAT: %v", err)
+		}
+	}()
+
+	// Should not panic, should return a valid writer
+	writer := logger.GetStderrWriter()
+	assert.NotNil(t, writer)
+
+	// Verify it actually uses default format (JSON -> os.Stderr)
+	// The default JSON format returns os.Stderr directly
+	assert.Equal(t, os.Stderr, writer, "should fallback to JSON format which returns os.Stderr")
+}
+
+func TestGetStderrWriter_JSONFormat(t *testing.T) {
+	if err := os.Setenv("LOG_FORMAT", "json"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LOG_FORMAT"); err != nil {
+			t.Logf("failed to unset LOG_FORMAT: %v", err)
+		}
+	}()
+
+	writer := logger.GetStderrWriter()
+	assert.NotNil(t, writer)
+	assert.Equal(t, os.Stderr, writer, "JSON format should return os.Stderr")
+}
+
+func TestGetStderrWriter_RawFormat(t *testing.T) {
+	if err := os.Setenv("LOG_FORMAT", "raw"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LOG_FORMAT"); err != nil {
+			t.Logf("failed to unset LOG_FORMAT: %v", err)
+		}
+	}()
+
+	writer := logger.GetStderrWriter()
+	assert.NotNil(t, writer)
+	assert.NotEqual(t, os.Stderr, writer, "Raw format should return ConsoleWriter")
+}
+
+func TestGetStderrWriter_PlainFormat(t *testing.T) {
+	if err := os.Setenv("LOG_FORMAT", "plain"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LOG_FORMAT"); err != nil {
+			t.Logf("failed to unset LOG_FORMAT: %v", err)
+		}
+	}()
+
+	writer := logger.GetStderrWriter()
+	assert.NotNil(t, writer)
+	assert.NotEqual(t, os.Stderr, writer, "Plain format should return ConsoleWriter")
+}
+
 // Test caller functionality
 
 func TestCallerDirDisplayLevel_WithConfig(t *testing.T) {
