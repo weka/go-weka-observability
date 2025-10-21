@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/weka/go-weka-observability/internal/version"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -134,7 +135,13 @@ func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion st
 // setupOTelSDKInternal contains the actual OpenTelemetry SDK initialization logic.
 // This is extracted to be reused by both SetupOTelSDK and SetupOTelSDKWithOptions.
 func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig) (shutdown func(context.Context) error, err error) {
-	Tracer = otel.Tracer(serviceName)
+	// Create tracer with library name and version (instrumentation scope)
+	// This identifies the go-weka-observability library itself, not the user's service
+	// Both name and version are automatically determined from Go module information
+	Tracer = otel.Tracer(
+		version.GetInstrumentationName(),
+		trace.WithInstrumentationVersion(version.GetInstrumentationVersion()),
+	)
 
 	if config.Endpoint == "" {
 		logger.V(VerbosityLevelInfo).WithCallDepth(CallDepthOffset).Info("No OTLP endpoint configured - traces will not be exported")
