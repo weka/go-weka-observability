@@ -207,6 +207,26 @@ func createLumberjackWriter(sink SinkConfig, level string) io.Writer {
 	}
 }
 
+// FormatCaller formats file path and line number with specified directory depth.
+// The dirLevels parameter controls how many parent directories to include:
+// - 0: shows only the filename (e.g., "file.go:42")
+// - 1: shows one parent directory (e.g., "pkg/file.go:42")
+// - 2+: shows multiple parent directories (e.g., "project/pkg/file.go:42")
+// Negative values are treated as 0.
+func FormatCaller(file string, line int, dirLevels int) string {
+	path := ParseCallerFilePath(file)
+	trimmedPath := path.KeepDepth(dirLevels)
+	return trimmedPath.WithLineNumber(line)
+}
+
+// formatCallerWithDirLevel creates a caller formatter function for zerolog
+// that shows the specified number of directory levels.
+func formatCallerWithDirLevel(dirLevel int) func(uintptr, string, int) string {
+	return func(_ uintptr, file string, line int) string {
+		return FormatCaller(file, line, dirLevel)
+	}
+}
+
 // setCallerMarshalFunc configures caller directory display level.
 // The mutex protects the global zerolog.CallerMarshalFunc from concurrent modifications.
 // This ensures thread-safe updates when multiple goroutines might initialize loggers simultaneously.
@@ -214,20 +234,7 @@ func setCallerMarshalFunc(callerDirLvl int) {
 	callerMarshalMutex.Lock()
 	defer callerMarshalMutex.Unlock()
 
-	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
-		short := file
-		dirsNum := callerDirLvl
-		for i := len(file) - 1; i > 0; i-- {
-			if file[i] == '/' {
-				short = file[i+1:]
-				if dirsNum < 1 {
-					break
-				}
-				dirsNum--
-			}
-		}
-		return short + ":" + strconv.Itoa(line)
-	}
+	zerolog.CallerMarshalFunc = formatCallerWithDirLevel(callerDirLvl)
 }
 
 // Set the amount of nested dirs displayed before `<file_name>:<line_number>` for `caller` field in logger.

@@ -456,3 +456,85 @@ func TestFutureProofLevelHandling(t *testing.T) {
 			hypotheticalCriticalLevel, zerolog.WarnLevel)
 	})
 }
+
+// TestFormatCaller tests the caller formatting logic with different directory levels
+func TestFormatCaller(t *testing.T) {
+	tests := []struct {
+		name      string
+		file      string
+		line      int
+		dirLevels int
+		want      string
+	}{
+		{
+			name:      "zero levels shows filename only",
+			file:      "/path/to/project/pkg/file.go",
+			line:      42,
+			dirLevels: 0,
+			want:      "file.go:42",
+		},
+		{
+			name:      "one level shows parent dir and filename",
+			file:      "/path/to/project/pkg/file.go",
+			line:      100,
+			dirLevels: 1,
+			want:      "pkg/file.go:100",
+		},
+		{
+			name:      "two levels shows two parent dirs and filename",
+			file:      "/path/to/project/pkg/sub/file.go",
+			line:      200,
+			dirLevels: 2,
+			want:      "pkg/sub/file.go:200",
+		},
+		{
+			name:      "three levels shows three parent dirs and filename",
+			file:      "/home/user/go/src/project/internal/logger/writer.go",
+			line:      350,
+			dirLevels: 3,
+			want:      "project/internal/logger/writer.go:350",
+		},
+		{
+			name:      "excessive dir levels shows entire path",
+			file:      "/short/path/file.go",
+			line:      10,
+			dirLevels: 100,
+			want:      "/short/path/file.go:10",
+		},
+		{
+			name:      "negative dir levels shows filename only",
+			file:      "/path/to/file.go",
+			line:      999,
+			dirLevels: -1,
+			want:      "file.go:999",
+		},
+		{
+			name:      "single file with leading slash and zero levels",
+			file:      "/file.go",
+			line:      1,
+			dirLevels: 0,
+			want:      "file.go:1",
+		},
+		{
+			name:      "no directory separators",
+			file:      "file.go",
+			line:      5,
+			dirLevels: 0,
+			want:      "file.go:5",
+		},
+		{
+			name:      "windows-style path separators not handled",
+			file:      "C:\\path\\to\\file.go",
+			line:      20,
+			dirLevels: 1,
+			want:      "C:\\path\\to\\file.go:20",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := logger.FormatCaller(tt.file, tt.line, tt.dirLevels)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
