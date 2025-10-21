@@ -1,5 +1,8 @@
 .PHONY: build test lint vet run-example-logger-init run-example-basic run-example-http-tracing run-example-logger-simple run-example-logspan
 
+tidy:
+	go mod tidy -v
+
 build:
 	go build ./...
 

@@ -78,6 +78,7 @@ spanLogger.Info("Operation in progress", "key", "value")
 
 ### Instrumentation (OpenTelemetry)
 - **[Instrumentation Configuration API](docs/instrumentation-configuration-api.md)** - Complete tracing configuration guide, usage patterns, environment variables, best practices
+- **[Versioning Strategy](docs/versioning.md)** - Library versioning, OpenTelemetry instrumentation scope, CI/CD release process
 
 ### Examples
 - **[Examples](examples/)** - Runnable code examples demonstrating common patterns
