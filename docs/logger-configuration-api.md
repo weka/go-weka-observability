@@ -16,39 +16,37 @@ The `logger` package provides a production-ready logging system built on [zerolo
 
 ## Quick Start
 
+**IMPORTANT:** All logger creation methods automatically respect environment variables (LOG_MODE, LOG_LEVEL, LOG_FORMAT, etc.). Environment variables always override code defaults, following the 12-factor app pattern.
+
 ### Console Logging (Default)
 
 ```go
 import "github.com/weka/go-weka-observability/logger"
 
 func main() {
-    log := logger.NewZeroLogger()
-    log.Info().Msg("Application started")
+    // Creates default logger: console sink, JSON format, info level
+    // Override via env: LOG_LEVEL=0 LOG_FORMAT=raw
+    logr := logger.CreateLogger()
+    logr.Info("Application started")
 }
 ```
 
 **Output to stderr:**
 ```json
-{"level":"info","time":"2025-09-30T12:00:00Z","caller":"main.go:5","message":"Application started"}
+{"level":"info","time":"2025-09-30T12:00:00Z","message":"Application started"}
 ```
 
-### File Logging with Custom Configuration
+### File Logging with Functional Options
 
 ```go
-config := logger.Config{
-    Sink: logger.SinkConfig{
-        Mode:       logger.FileMode,
-        Dir:        "/var/log/myapp",
-        FileName:   "myapp.log",
-        MaxSizeMB:  100,  // MB
-        MaxFiles:   5,    // backups
-        MaxAgeDays: 28,   // days
-    },
-}
-
-log := logger.NewZeroLoggerWithConfig(config)
-log.Info().Msg("Processing request")
-log.Error().Msg("Something failed")
+// Functional options set defaults, but LOG_* env vars can override
+logr := logger.CreateLogger(
+    logger.WithFileSink("/var/log/myapp", "myapp.log"),
+    logger.WithRotation(100, 5, 28), // 100MB, 5 backups, 28 days
+    logger.WithInfoLevel(),
+)
+// Override via env: LOG_MODE=console to switch to stderr
+logr.Info("Processing request")
 ```
 
 **Files created:**
@@ -56,6 +54,31 @@ log.Error().Msg("Something failed")
 /var/log/myapp/
 ├── myapp.log       # Info, debug, trace logs
 └── myapp-error.log # Warn, error, fatal logs
+```
+
+### With Context (Recommended for Applications)
+
+```go
+func main() {
+    ctx := context.Background()
+
+    // Create logger with options (overrideable via LOG_* env vars)
+    logr := logger.CreateLogger(
+        logger.WithConsoleSink(),
+        logger.WithInfoLevel(),
+    )
+
+    // Store in context for propagation
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // Use throughout application
+    processRequest(ctx)
+}
+
+func processRequest(ctx context.Context) {
+    logger := logger.MustLogrFromContext(ctx)
+    logger.Info("Processing started", "request_id", "req-123")
+}
 ```
 
 ---
@@ -185,18 +208,33 @@ Logs are automatically separated by severity:
 
 ## Configuration Patterns
 
-### Pattern 1: Use Defaults
+### Pattern 1: Use Defaults (Simplest)
 
-**Use Case:** Simple applications, local development
+**Use Case:** Simple applications, quick start, local development
 
 ```go
-log := logger.NewZeroLogger()
-// Logs to console with default settings
+// Creates logger with defaults: console, JSON, info level
+// All overrideable via LOG_* environment variables
+logr := logger.CreateLogger()
+logr.Info("Application started")
 ```
 
-### Pattern 2: Explicit Configuration
+### Pattern 2: Functional Options (Recommended)
 
-**Use Case:** Full control over logging behavior
+**Use Case:** Set application defaults while allowing environment overrides
+
+```go
+// Set explicit defaults, but allow env vars to override
+logr := logger.CreateLogger(
+    logger.WithConsoleSink(),      // Override: LOG_MODE=file
+    logger.WithInfoLevel(),         // Override: LOG_LEVEL=0
+    logger.WithJSONFormat(),        // Override: LOG_FORMAT=raw
+)
+```
+
+### Pattern 3: Explicit Configuration
+
+**Use Case:** Full control, complex configuration, programmatic setup
 
 ```go
 config := logger.Config{
@@ -208,41 +246,57 @@ config := logger.Config{
         MaxFiles:   10,
         MaxAgeDays: 7,
     },
-}
-
-log := logger.NewZeroLoggerWithConfig(config)
-```
-
-### Pattern 3: Custom Defaults + Environment Overrides
-
-**Use Case:** Production applications with per-environment configuration
-
-```go
-// Define sensible application defaults
-appDefaults := logger.Config{
-    Sink: logger.SinkConfig{
-        Mode:       logger.FileMode,
-        Dir:        "/app/logs",
-        FileName:   "service.log",
-        MaxSizeMB:  100,
-        MaxFiles:   5,
-        MaxAgeDays: 14,
+    Format: logger.FormatConfig{
+        Level:  zerolog.DebugLevel,
+        Format: logger.LogFormatJSON,
     },
 }
 
-// Allow environment to override
-config := logger.NewConfigFromEnv(appDefaults)
-log := logger.NewZeroLoggerWithConfig(config)
+// Environment variables can still override this config
+logr := logger.CreateLoggerFrom(config)
 ```
 
-**Deployment:**
+### Pattern 4: Context-Based (Recommended for Applications)
+
+**Use Case:** Microservices, request handling, span propagation
+
+```go
+func main() {
+    ctx := context.Background()
+
+    // Create logger (overrideable via LOG_* env vars)
+    logr := logger.CreateLogger(
+        logger.WithConsoleSink(),
+        logger.WithInfoLevel(),
+    )
+
+    // Store in context
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // Pass context through call chain
+    http.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+        handleRequest(r.Context())
+    })
+}
+
+func handleRequest(ctx context.Context) {
+    // Retrieve logger from context
+    logger := logger.MustLogrFromContext(ctx)
+    logger.Info("Handling request")
+}
+```
+
+**Deployment Examples:**
 
 ```bash
-# Production: use defaults
+# Production: use code defaults
 ./myapp
 
-# Staging: smaller files, shorter retention
-LOG_MAX_SIZE_MB=50 LOG_MAX_AGE_DAYS=7 ./myapp
+# Staging: enable debug logging
+LOG_LEVEL=0 ./myapp
+
+# Development: colored output
+LOG_FORMAT=raw LOG_LEVEL=0 ./myapp
 
 # Development: different directory
 LOG_DIR=/tmp/dev-logs ./myapp

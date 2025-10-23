@@ -233,12 +233,20 @@ import (
 )
 
 func initializeOTel(ctx context.Context, tracerName, version string) (func(), error) {
-    // Create root logger (respects LOG_MODE, LOG_DIR env vars)
-    logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
+    // Create logger with explicit options (overrideable via LOG_* env vars)
+    logr := logger.CreateLogger(
+        logger.WithConsoleSink(),
+        logger.WithInfoLevel(),
+    )
     ctx = logger.ContextWithLogr(ctx, logr)
 
-    // Setup OTel with logger directly
-    shutdownFn, err := instrumentation.SetupOTelSDK(ctx, tracerName, version, logr)
+    // Setup OTel with options
+    // OTEL_EXPORTER_OTLP_ENDPOINT always takes precedence if set,
+    // regardless of whether you use WithDefaultOTLPEndpoint or not
+    shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(
+        ctx, tracerName, version, logr,
+        instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
+    )
     if err != nil {
         return nil, err
     }
@@ -252,9 +260,10 @@ func initializeOTel(ctx context.Context, tracerName, version string) (func(), er
 2. No pointer anti-pattern
 3. Clear separation: create → store → use
 4. No redundant context retrieval
-5. Environment-aware by default
+5. Environment-aware defaults (respects LOG_* and OTEL_* env vars)
 6. Better package boundaries
 7. Easier to test and understand
+8. Production-ready configuration with sensible defaults
 
 ## See Also
 

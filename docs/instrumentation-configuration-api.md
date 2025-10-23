@@ -27,8 +27,12 @@ import (
 func main() {
     ctx := context.Background()
 
-    // Create logger
-    logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
+    // Create logger with explicit options (overrideable via LOG_* env vars)
+    logr := logger.CreateLogger(
+        logger.WithConsoleSink(),
+        logger.WithInfoLevel(),
+    )
+    ctx = logger.ContextWithLogr(ctx, logr)
 
     // Setup OpenTelemetry (uses OTEL_EXPORTER_OTLP_ENDPOINT env var)
     shutdown, err := instrumentation.SetupOTelSDKWithOptions(
@@ -52,16 +56,16 @@ func main() {
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
 
-### With Default Endpoint (Overridable by Env)
+### With Fallback Endpoint (Env Always Takes Precedence)
 
 ```go
-// Set a default endpoint that env var can override
+// Set a fallback endpoint to use when OTEL_EXPORTER_OTLP_ENDPOINT is not set
 shutdown, err := instrumentation.SetupOTelSDKWithOptions(
     ctx, "my-service", "v1.0.0", logr,
     instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
     instrumentation.WithResourceAttributes("environment", "production", "region", "us-west"),
 )
-// OTEL_EXPORTER_OTLP_ENDPOINT environment variable overrides this default
+// OTEL_EXPORTER_OTLP_ENDPOINT environment variable always takes precedence if set
 ```
 
 ### With Explicit Config
@@ -164,7 +168,7 @@ shutdown, err := instrumentation.SetupOTelSDKFrom(
 
 ### API 2: Functional Options (Recommended)
 
-**Pattern:** Mirrors `logger.CreateLogger` - options set defaults, env overrides.
+**Pattern:** Mirrors `logger.CreateLogger` - options set fallback values, env always takes precedence.
 
 ```go
 shutdown, err := instrumentation.SetupOTelSDKWithOptions(
@@ -172,12 +176,13 @@ shutdown, err := instrumentation.SetupOTelSDKWithOptions(
     instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
     instrumentation.WithResourceAttributes("environment", "production", "region", "us-west"),
 )
-// OTEL_EXPORTER_OTLP_ENDPOINT environment variable overrides WithDefaultOTLPEndpoint
+// OTEL_EXPORTER_OTLP_ENDPOINT environment variable always takes precedence if set,
+// regardless of whether you use WithDefaultOTLPEndpoint or not
 ```
 
 **When to use:**
 - Clean, fluent API (recommended for most use cases)
-- You want sensible defaults with env override capability
+- You want fallback values that can be overridden by env vars
 - You're starting a new project
 
 ### API 3: Legacy (Deprecated)
@@ -215,7 +220,7 @@ type OTelConfig struct {
 
 #### WithDefaultOTLPEndpoint
 
-Sets the default OTLP exporter endpoint (can be overridden by `OTEL_EXPORTER_OTLP_ENDPOINT`).
+Sets the OTLP endpoint to use when `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable is not set.
 
 ```go
 instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317")
@@ -228,7 +233,7 @@ shutdown, err := instrumentation.SetupOTelSDKWithOptions(
     instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
 )
 
-// Override with env var:
+// OTEL_EXPORTER_OTLP_ENDPOINT always takes precedence if set:
 // export OTEL_EXPORTER_OTLP_ENDPOINT=http://prod-collector:4317
 ```
 
@@ -280,15 +285,17 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.prod.example.com:4317
 ### Environment Override Behavior
 
 ```go
-// Code sets default
+// Code sets fallback value
 shutdown, err := instrumentation.SetupOTelSDKWithOptions(
     ctx, "service", "v1", logger,
     instrumentation.WithDefaultOTLPEndpoint("http://dev-collector:4317"),
 )
 
-// Environment variable OVERRIDES the default
+// Environment variable ALWAYS takes precedence if set
 // export OTEL_EXPORTER_OTLP_ENDPOINT=http://prod-collector:4317
-// Result: Uses http://prod-collector:4317
+// Result: Uses http://prod-collector:4317 (env var wins)
+
+// If env var is NOT set, uses http://dev-collector:4317 (fallback)
 ```
 
 ### No Endpoint = No Export
@@ -317,11 +324,25 @@ spanLogger.Info("Processing request", "user_id", 123)
 spanLogger.Error(err, "Failed to process", "retry_count", 3)
 ```
 
+**IMPORTANT:** A logger MUST be stored in context before calling `GetLogSpan`:
+
+```go
+// REQUIRED: Store logger in context first
+logr := logger.CreateLogger(logger.WithInfoLevel())
+ctx = logger.ContextWithLogr(ctx, logr)
+
+// Now GetLogSpan can retrieve it
+ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
+```
+
+If no logger is in context, a default logger will be created automatically (but you lose control over logger configuration).
+
 **What happens:**
-1. Creates OpenTelemetry span
-2. Creates logger with `trace_id` and `span_id` fields
-3. Returns `SpanLogger` that combines both
-4. `defer end()` closes the span
+1. Retrieves logger from context (or creates default if missing)
+2. Creates OpenTelemetry span
+3. Enriches logger with `trace_id` and `span_id` fields
+4. Returns `SpanLogger` that combines both
+5. `defer end()` closes the span
 
 ### SpanLogger Methods
 
@@ -360,6 +381,39 @@ spanLogger.SetAttributes(
 
 **Effect:**
 - Adds attributes to OpenTelemetry span only (not logged)
+
+### Reusing Parent Span (Helper Functions)
+
+**Use case:** Helper functions that should log under the parent's span without creating a new child span.
+
+```go
+func processOrder(ctx context.Context, orderID string) error {
+    ctx, logger, end := instrumentation.GetLogSpan(ctx, "processOrder")
+    defer end()
+
+    logger.Info("Processing order", "order_id", orderID)
+
+    // Helper logs under same span (no new span created)
+    validateData(ctx, orderID)
+
+    return nil
+}
+
+func validateData(ctx context.Context, orderID string) {
+    // Empty string ("") reuses parent span
+    _, logger, _ := instrumentation.GetLogSpan(ctx, "")
+    // DO NOT call end() - no new span created!
+
+    logger.Info("Validating data", "order_id", orderID)
+    // Logs include parent's trace_id and span_id
+}
+```
+
+**IMPORTANT:**
+- Empty string (`""`) reuses the current span from context (doesn't create a new one)
+- Calling `end()` is safe (no-op) but not recommended for code clarity
+- Cannot pass `keysAndValues` when name is empty (will panic)
+- Use this pattern for helper functions that don't need their own span
 
 ---
 
@@ -613,15 +667,16 @@ spanLogger.Info("Order created",
 spanLogger.Info("Database insert completed")
 ```
 
-### 5. Set Defaults with Env Override
+### 5. Set Fallback Values (Env Always Wins)
 
 ```go
-// ✅ Good - default for dev, env var for prod
+// ✅ Good - fallback for dev, env var for prod
 shutdown, err := instrumentation.SetupOTelSDKWithOptions(
     ctx, "service", "v1", logger,
     instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
 )
 // Production: export OTEL_EXPORTER_OTLP_ENDPOINT=https://prod-collector:4317
+// The env var will always be used if set, regardless of WithDefaultOTLPEndpoint
 ```
 
 ---

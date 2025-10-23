@@ -80,7 +80,29 @@ func DefaultFormatConfig() FormatConfig {
 	}
 }
 
-// DefaultConfig returns complete default configuration
+// DefaultConfig returns complete default configuration for the logger.
+//
+// Default configuration values:
+//   - Sink.Mode:       ConsoleMode (logs to stderr)
+//   - Sink.Dir:        "/var/log"
+//   - Sink.FileName:   "" (empty, not used in console mode)
+//   - Sink.MaxSizeMB:  100 MB
+//   - Sink.MaxFiles:   5 backups
+//   - Sink.MaxAgeDays: 28 days
+//   - Format.Level:    zerolog.InfoLevel
+//   - Format.Format:   LogFormatJSON
+//   - Format.TimeOnly: false
+//   - Format.CallerDirLvl: -1 (disabled)
+//
+// This configuration does NOT consider environment variables.
+// For environment-aware configuration, use NewDefaultConfigWithEnvOverrides() instead.
+//
+// Example usage:
+//
+//	config := logger.DefaultConfig()
+//	// Modify specific fields if needed
+//	config.Format.Level = zerolog.DebugLevel
+//	logr := logger.CreateLoggerFrom(config)
 func DefaultConfig() Config {
 	return Config{
 		Sink:   DefaultSinkConfig(),
@@ -110,7 +132,52 @@ func NewConfigFromEnv(defaultConfig Config) Config {
 	return defaultConfig
 }
 
-// NewDefaultConfigWithEnvOverrides convenience wrapper for NewConfigFromEnv with defaults
+// NewDefaultConfigWithEnvOverrides returns logger configuration with defaults that can be overridden by environment variables.
+//
+// Note: Since CreateLoggerFrom() now automatically applies environment overrides,
+// using CreateLoggerFrom(DefaultConfig()) is equivalent to CreateLoggerFrom(NewDefaultConfigWithEnvOverrides()).
+// This function is kept for backwards compatibility and explicit intent.
+//
+// Default configuration:
+//   - Sink.Mode:       ConsoleMode (logs to stderr)
+//   - Sink.Dir:        "/var/log"
+//   - Sink.FileName:   "" (empty)
+//   - Sink.MaxSizeMB:  100 MB
+//   - Sink.MaxFiles:   5 backups
+//   - Sink.MaxAgeDays: 28 days
+//   - Format.Level:    zerolog.InfoLevel
+//   - Format.Format:   LogFormatJSON
+//   - Format.TimeOnly: false
+//   - Format.CallerDirLvl: -1 (disabled)
+//
+// Environment variables (all optional):
+//   - LOG_MODE:          "console" or "file"
+//   - LOG_DIR:           Log directory path
+//   - LOG_FILE_NAME:     Log file name
+//   - LOG_MAX_SIZE_MB:   Max file size in MB
+//   - LOG_MAX_FILES:     Max backup files
+//   - LOG_MAX_AGE_DAYS:  Max retention days
+//   - LOG_LEVEL:         Log level (-1=trace, 0=debug, 1=info, 2=warn, 3=error, 4=fatal)
+//   - LOG_FORMAT:        "json", "raw", or "plain"
+//   - LOG_TIME_ONLY:     "true" or "false"
+//   - LOG_CALLER_DIR_LVL: Number of directory levels (-1=disabled)
+//
+// This function is equivalent to:
+//
+//	logger.NewConfigFromEnv(logger.DefaultConfig())
+//
+// Example usage (both are equivalent now):
+//
+//	// Explicit about env overrides
+//	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
+//
+//	// Simpler (env overrides applied automatically)
+//	logr := logger.CreateLoggerFrom(logger.DefaultConfig())
+//
+//	// Override via environment:
+//	// export LOG_MODE=file
+//	// export LOG_FILE_NAME=myapp.log
+//	// export LOG_LEVEL=0  # debug level
 func NewDefaultConfigWithEnvOverrides() Config {
 	return NewConfigFromEnv(DefaultConfig())
 }

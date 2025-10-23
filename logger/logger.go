@@ -1,9 +1,67 @@
-// Package logger provides structured logging and observability utilities for Weka applications.
+// Package logger provides production-ready structured logging with automatic log rotation
+// and environment-based configuration.
 //
-// This package supports multiple output modes (console and file), configurable via environment
-// variables using kelseyhightower/envconfig. Environment variables are prefixed with "LOG_"
-// (e.g., LOG_MODE, LOG_DIR, LOG_FILE_NAME). The package integrates with OpenTelemetry tracing
-// and provides both zerolog-based Logger and logr.Logger interfaces for different use cases.
+// # Key Features
+//
+//   - Zero-allocation JSON logging via zerolog
+//   - Automatic log rotation via lumberjack
+//   - Environment variable overrides (12-factor app compliance)
+//   - Context-based logger propagation
+//   - Separate info and error log files
+//   - Integration with OpenTelemetry tracing
+//
+// # Quick Start
+//
+// Create a logger with defaults:
+//
+//	logr := logger.CreateLogger()
+//	logr.Info("Application started")
+//	// Override: LOG_LEVEL=0 LOG_FORMAT=raw
+//
+// Create a file logger with rotation:
+//
+//	logr := logger.CreateLogger(
+//	    logger.WithFileSink("/var/log", "app.log"),
+//	    logger.WithRotation(100, 5, 28), // 100MB, 5 files, 28 days
+//	)
+//
+// Create with explicit configuration:
+//
+//	logr := logger.CreateLogger(
+//	    logger.WithConsoleSink(),
+//	    logger.WithInfoLevel(),
+//	    logger.WithJSONFormat(),
+//	)
+//	ctx = logger.ContextWithLogr(ctx, logr)
+//
+// # Environment Variables
+//
+// All logger creation methods automatically respect environment variables:
+//
+//   - LOG_MODE: "console" or "file"
+//   - LOG_LEVEL: -1=trace, 0=debug, 1=info, 2=warn, 3=error
+//   - LOG_FORMAT: "json", "raw", "plain"
+//   - LOG_DIR: Log directory path
+//   - LOG_FILE_NAME: Log file name
+//   - LOG_MAX_SIZE_MB: Max file size before rotation
+//   - LOG_MAX_FILES: Max backup files to keep
+//   - LOG_MAX_AGE_DAYS: Max retention in days
+//
+// Environment variables always override code defaults, following the 12-factor app pattern.
+//
+// # Integration with OpenTelemetry
+//
+// Use with instrumentation package for traced logging:
+//
+//	logr := logger.CreateLogger()
+//	shutdown, _ := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1.0.0", logr)
+//	defer shutdown(ctx)
+//
+//	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
+//	defer end()
+//	spanLogger.Info("Processing", "user_id", 123)
+//
+// See package documentation for complete examples and configuration options.
 package logger
 
 import (

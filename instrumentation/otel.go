@@ -1,3 +1,126 @@
+// Package instrumentation provides OpenTelemetry tracing integration with automatic
+// trace propagation and combined logging/tracing via GetLogSpan.
+//
+// # Key Features
+//
+//   - Automatic OpenTelemetry SDK setup with sensible defaults
+//   - OTLP gRPC exporter for trace export
+//   - Combined logging and tracing via GetLogSpan
+//   - Environment variable overrides (OTEL_EXPORTER_OTLP_ENDPOINT)
+//   - Resource attributes for service identification
+//   - Graceful degradation when no collector is available
+//
+// # Quick Start
+//
+// Basic setup with logger:
+//
+//	logr := logger.CreateLogger()
+//	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+//	    ctx, "my-service", "v1.0.0", logr,
+//	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
+//	)
+//	if err != nil {
+//	    return err
+//	}
+//	defer shutdown(ctx)
+//
+// Combined logging and tracing:
+//
+//	// GetLogSpan creates a span and returns a logger automatically enriched with trace IDs
+//	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
+//	defer end()
+//
+//	spanLogger.Info("Processing request", "user_id", 123)
+//	// Logs include trace_id and span_id automatically
+//
+// # Environment Variables
+//
+//   - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP collector endpoint (overrides code defaults)
+//
+// Example: OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+//
+// # Configuration Patterns
+//
+// Functional options (recommended):
+//
+//	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+//	    ctx, "service", "v1.0.0", logr,
+//	    instrumentation.WithDefaultOTLPEndpoint("http://collector:4317"),
+//	    instrumentation.WithResourceAttributes("environment", "production"),
+//	)
+//
+// Explicit config:
+//
+//	config := instrumentation.OTelConfig{
+//	    Endpoint: "http://collector:4317",
+//	    ResourceAttributes: []any{"environment", "production"},
+//	}
+//	config = instrumentation.NewOTelConfigFromEnv(config)
+//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "service", "v1.0.0", logr, config)
+//
+// # Complete Example
+//
+//	func main() {
+//	    ctx := context.Background()
+//
+//	    // Setup logger
+//	    logr := logger.CreateLogger(logger.WithInfoLevel())
+//	    ctx = logger.ContextWithLogr(ctx, logr) // IMPORTANT: Store in context!
+//
+//	    // Setup OpenTelemetry
+//	    shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+//	        ctx, "my-service", "v1.0.0", logr,
+//	        instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+//	    )
+//	    if err != nil {
+//	        panic(err)
+//	    }
+//	    defer shutdown(ctx)
+//
+//	    // Use traced logging (logger retrieved from context)
+//	    processRequest(ctx)
+//	}
+//
+//	func processRequest(ctx context.Context) {
+//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
+//	    defer end()
+//
+//	    logger.Info("Processing started", "request_id", "req-123")
+//	    // Span is automatically created and logs include trace IDs
+//
+//	    // Nested operations create child spans
+//	    queryDatabase(ctx)
+//	}
+//
+//	func queryDatabase(ctx context.Context) {
+//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "query_database")
+//	    defer end()
+//
+//	    logger.Info("Querying database", "query", "SELECT * FROM users")
+//	    // This span is a child of process_request span
+//	}
+//
+// # Reusing Parent Span (Helper Functions)
+//
+// Sometimes you want a helper function to log under the parent's span without creating
+// a new span. Use an empty string for the span name, and DO NOT call end():
+//
+//	func processRequest(ctx context.Context) {
+//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
+//	    defer end()
+//
+//	    logger.Info("Processing started")
+//	    helper(ctx) // Helper logs under same span
+//	}
+//
+//	func helper(ctx context.Context) {
+//	    _, logger, _ := instrumentation.GetLogSpan(ctx, "")
+//	    // Calling end() is safe (no-op) but not calling it makes it clearer
+//	    // that the parent owns the span lifecycle
+//	    logger.Info("Helper doing work") // Uses parent's span
+//	}
+//
+// See package documentation and examples for more details.
 package instrumentation
 
 import (
@@ -47,18 +170,26 @@ const (
 //
 //	shutdown, err := instrumentation.SetupOTelSDK(ctx, "service", "v1", logger, "key", "value")
 //
-// New (functional options):
+// New (functional options - recommended):
 //
+//	// Create logger with explicit options (overrideable via LOG_* env vars)
+//	logr := logger.CreateLogger(
+//	    logger.WithConsoleSink(),
+//	    logger.WithInfoLevel(),
+//	)
+//	ctx = logger.ContextWithLogr(ctx, logr)
+//
+//	// Setup OpenTelemetry with options (OTEL_EXPORTER_OTLP_ENDPOINT env var can override)
 //	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
-//	    ctx, "service", "v1", logger,
-//	    instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+//	    ctx, "service", "v1.0.0", logr,
+//	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
 //	    instrumentation.WithResourceAttributes("key", "value"),
 //	)
 //
 // New (explicit config):
 //
 //	config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
-//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "service", "v1", logger, config, "key", "value")
+//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "service", "v1", logr, config, "key", "value")
 func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
 	return SetupOTelSDKWithOptions(
 		ctx, serviceName, serviceVersion, logger,
@@ -74,16 +205,22 @@ func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logge
 //
 // Example with environment defaults:
 //
+//	logr := logger.CreateLogger()
 //	config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
-//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logger, config, "key", "value")
+//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logr, config, "key", "value")
+//	if err != nil {
+//	    return err
+//	}
+//	defer shutdown(ctx)
 //
 // Example with custom defaults that can be overridden by env:
 //
+//	logr := logger.CreateLogger()
 //	config := instrumentation.OTelConfig{
 //	    Endpoint: "http://default-collector:4317",  // This is the DEFAULT
 //	}
 //	config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
-//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logger, config, "key", "value")
+//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logr, config, "key", "value")
 func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
 	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 
@@ -102,12 +239,20 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 //
 // This function follows the same pattern as logger.CreateLogger - functional options
-// are applied to defaults, then environment variables can override.
+// set defaults, then environment variables (OTEL_EXPORTER_OTLP_ENDPOINT) can override.
 //
-// Example usage:
+// Complete example:
 //
+//	// Create logger (overrideable via LOG_* env vars)
+//	logr := logger.CreateLogger(
+//	    logger.WithConsoleSink(),
+//	    logger.WithInfoLevel(),
+//	)
+//	ctx = logger.ContextWithLogr(ctx, logr)
+//
+//	// Setup OpenTelemetry (OTEL_EXPORTER_OTLP_ENDPOINT can override endpoint)
 //	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
-//	    ctx, "my-service", "v1.0.0", logger,
+//	    ctx, "my-service", "v1.0.0", logr,
 //	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
 //	    instrumentation.WithResourceAttributes("environment", "production"),
 //	)
@@ -115,18 +260,23 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 //	    return err
 //	}
 //	defer shutdown(ctx)
+//
+//	// Use combined logging and tracing
+//	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
+//	defer end()
+//	spanLogger.Info("Processing request", "user_id", 123)
 func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, opts ...OTelOption) (shutdown func(context.Context) error, err error) {
 	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 
 	// Start with defaults
 	config := DefaultOTelConfig()
 
-	// Apply functional options to set defaults
+	// Apply functional options to set fallback values
 	for _, opt := range opts {
 		opt(&config)
 	}
 
-	// Environment variables can override the defaults set by options
+	// Environment variables always take precedence if set
 	config = NewOTelConfigFromEnv(config)
 
 	return setupOTelSDKInternal(ctx, serviceName, serviceVersion, logger, config)

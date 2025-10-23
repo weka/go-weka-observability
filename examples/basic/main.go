@@ -38,9 +38,13 @@ func main() {
 		rootKeysAndValues = append(rootKeysAndValues, k, v)
 	}
 
-	// Initialize logger with environment configuration and store in context
-	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides()).
-		WithName("BasicExample").
+	// Initialize logger: console sink, raw format (with colors), debug level
+	// Functional options set defaults, but env vars from init() override them
+	logr := logger.CreateLogger(
+		logger.WithConsoleSink(),
+		logger.WithRawFormat(),
+		logger.WithDebugLevel(),
+	).WithName("BasicExample").
 		WithValues(rootKeysAndValues...)
 	ctx = logger.ContextWithLogr(ctx, logr)
 	ctxLogger := logger.MustLogrFromContext(ctx)
@@ -56,15 +60,21 @@ func main() {
 	// config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
 	// shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "basic-logspan-example", "v1.0.0", ctxLogger, config, rootKeysAndValues...)
 	//
-	// API Option 2: SetupOTelSDKWithOptions - Functional options (env overrides)
+	// API Option 2: SetupOTelSDKWithOptions - Functional options (env always takes precedence)
 	// This follows the same pattern as logger.CreateLogger
-	// Options set DEFAULT values that can be overridden by OTEL_EXPORTER_OTLP_ENDPOINT env var
+	//
+	// OTEL_EXPORTER_OTLP_ENDPOINT environment variable always takes precedence if set,
+	// regardless of whether you use WithDefaultOTLPEndpoint or not.
+	//
+	// Note: If no collector is running at the endpoint, traces won't be exported but the
+	// example will still run successfully (graceful degradation)
 	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
 		ctx,
 		"basic-logspan-example",
 		"v1.0.0",
 		ctxLogger,
-		// WithDefaultOTLPEndpoint sets DEFAULT that OTEL_EXPORTER_OTLP_ENDPOINT env can override
+		// WithDefaultOTLPEndpoint sets fallback endpoint when OTEL_EXPORTER_OTLP_ENDPOINT is not set
+		// Comment this out if you want to run without a collector
 		// instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
 		instrumentation.WithResourceAttributes(rootKeysAndValues...),
 	)

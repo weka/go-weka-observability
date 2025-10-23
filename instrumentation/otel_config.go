@@ -52,8 +52,11 @@ func NewDefaultOTelConfigWithEnvOverrides() OTelConfig {
 	return NewOTelConfigFromEnv(DefaultOTelConfig())
 }
 
-// WithDefaultOTLPEndpoint sets the default OTLP exporter endpoint.
-// This default can be overridden by the OTEL_EXPORTER_OTLP_ENDPOINT environment variable.
+// WithDefaultOTLPEndpoint sets the OTLP endpoint to use when OTEL_EXPORTER_OTLP_ENDPOINT
+// environment variable is not set. If neither is set, traces will not be exported.
+//
+// The OTEL_EXPORTER_OTLP_ENDPOINT environment variable always takes precedence if set,
+// regardless of whether you use this option.
 //
 // Example:
 //
@@ -61,7 +64,7 @@ func NewDefaultOTelConfigWithEnvOverrides() OTelConfig {
 //	    ctx, "my-service", "v1.0.0", logger,
 //	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
 //	)
-//	// OTEL_EXPORTER_OTLP_ENDPOINT env var can override this default
+//	// If OTEL_EXPORTER_OTLP_ENDPOINT is set, it will be used instead of the default above
 func WithDefaultOTLPEndpoint(endpoint string) OTelOption {
 	return func(c *OTelConfig) {
 		c.Endpoint = endpoint

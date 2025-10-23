@@ -340,13 +340,29 @@ func (c *HTTPClient) Post(ctx context.Context, endpoint string, data any) (*Resp
 func main() {
 	ctx := context.Background()
 
-	// Initialize root logger and put it into context
-	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides()).WithName("HTTPTracingExample")
+	// Initialize logger: console sink, raw format (with colors), debug level
+	// Functional options set defaults, but env vars from init() override them
+	logr := logger.CreateLogger(
+		logger.WithConsoleSink(),
+		logger.WithRawFormat(),
+		logger.WithDebugLevel(),
+	).WithName("HTTPTracingExample")
 	ctx = logger.ContextWithLogr(ctx, logr)
 	ctxLogger := logger.MustLogrFromContext(ctx)
 
-	// Setup OpenTelemetry SDK
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "http-tracing-example", "v1.0.0", ctxLogger)
+	// Setup OpenTelemetry SDK with options
+	//
+	// OTEL_EXPORTER_OTLP_ENDPOINT environment variable always takes precedence if set,
+	// regardless of whether you use WithDefaultOTLPEndpoint or not.
+	//
+	// Note: If no collector is running at the endpoint, traces won't be exported but the
+	// example will still run successfully (graceful degradation)
+	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+		ctx, "http-tracing-example", "v1.0.0", ctxLogger,
+		// WithDefaultOTLPEndpoint sets fallback endpoint when OTEL_EXPORTER_OTLP_ENDPOINT is not set
+		// Comment this out if you want to run without a collector
+		instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+	)
 	if err != nil {
 		panic(err)
 	}
