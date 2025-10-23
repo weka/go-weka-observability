@@ -313,7 +313,92 @@ func logOperationStart(logger logr.Logger, name string) {
 }
 
 // GetLogSpan creates or reuses a logger from context and creates a span for an operation.
-// Returns context with logger, a SpanLogger combining logger and span, and a cleanup function.
+// This is the primary function for combined logging and tracing in instrumented code.
+//
+// IMPORTANT: A logger MUST be stored in context before calling GetLogSpan, otherwise a
+// default logger will be created. Always use logger.ContextWithLogr() to store your logger:
+//
+//	logr := logger.CreateLogger(logger.WithInfoLevel())
+//	ctx = logger.ContextWithLogr(ctx, logr)  // REQUIRED!
+//
+// Returns:
+//   - context.Context: Updated context with logger stored
+//   - *SpanLogger: Combined logger and span that automatically enriches logs with trace IDs
+//   - func(): Cleanup function that ends the span (must be called with defer)
+//
+// The SpanLogger automatically includes trace_id and span_id in all log messages,
+// making it easy to correlate logs with traces in your observability backend.
+//
+// Parameters:
+//   - name: Operation name for the span. Empty string ("") reuses the current span from context
+//     without creating a new one. When name is empty, calling end() is safe (no-op), but not
+//     recommended for code clarity - it makes it obvious the parent owns the span lifecycle.
+//   - keysAndValues: Optional key-value pairs added to both logs and span attributes.
+//     IMPORTANT: Cannot be used when name is empty (will panic).
+//
+// Example - Basic usage (creates new span):
+//
+//	func processRequest(ctx context.Context) {
+//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
+//	    defer end() // MUST call end() when creating new span
+//
+//	    logger.Info("Processing started", "user_id", 123)
+//	    // Logs include: trace_id=xxx span_id=yyy user_id=123
+//	}
+//
+// Example - Nested operations (creates child spans):
+//
+//	func processRequest(ctx context.Context) {
+//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
+//	    defer end()
+//
+//	    logger.Info("Processing started")
+//	    queryDatabase(ctx) // This will be a child span
+//	}
+//
+//	func queryDatabase(ctx context.Context) {
+//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "query_database")
+//	    defer end()
+//
+//	    logger.Info("Querying database")
+//	    // This span is nested under process_request
+//	}
+//
+// Example - With attributes (creates new span):
+//
+//	ctx, logger, end := instrumentation.GetLogSpan(ctx, "operation",
+//	    "user_id", 123,
+//	    "request_id", "req-456",
+//	)
+//	defer end()
+//	// Both logs and span include user_id and request_id
+//
+// Example - Reusing parent span (NO new span created):
+//
+//	func helper(ctx context.Context) {
+//	    // Get logger from context with current span's trace IDs
+//	    _, logger, _ := instrumentation.GetLogSpan(ctx, "")
+//	    // Calling end() here is safe (no-op) but not recommended for clarity
+//	    // It's better to NOT call it to make it obvious parent owns the span
+//
+//	    logger.Info("Helper doing work")
+//	    // Logs include parent's trace_id and span_id
+//	}
+//
+// IMPORTANT: When name is empty:
+//   - Returns the current span from context (doesn't create new one)
+//   - Calling end() is safe (it's a no-op) but not recommended for code clarity
+//   - Cannot pass keysAndValues (will panic)
+//   - Use this for helper functions that should log under parent's span
+//
+// SpanLogger methods:
+//   - Info(msg, keysAndValues...): Log at info level + add span event
+//   - Debug(msg, keysAndValues...): Log at debug level + add span event
+//   - Warn(msg, keysAndValues...): Log at warn level + add span event
+//   - Error(err, msg, keysAndValues...): Log error + record error in span
+//   - SetError(err, msg, keysAndValues...): Log error + set span status to error
+//   - SetAttributes(attrs...): Add attributes to span only
+//   - SetValues(keysAndValues...): Add to both logger and span
 func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger, func()) {
 	validateGetLogSpanArgs(name, keysAndValues)
 

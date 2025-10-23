@@ -31,12 +31,13 @@ func ContextWithLogger(ctx context.Context, l *Logger) context.Context {
 // Returns a new context containing the logger.
 // Follows Go stdlib pattern (context.WithValue, context.WithCancel, etc.).
 //
-// Use this after creating a logger with CreateLoggerFrom.
+// Use this after creating a logger with CreateLogger or CreateLoggerFrom.
 //
 // Example:
 //
-//	logr := logger.CreateLoggerFrom(logger.DefaultLogConfig())
+//	logr := logger.CreateLogger(logger.WithConsoleSink(), logger.WithInfoLevel())
 //	ctx = logger.ContextWithLogr(ctx, logr)
+//	// Later retrieve: logger.MustLogrFromContext(ctx)
 func ContextWithLogr(ctx context.Context, logger logr.Logger) context.Context {
 	return context.WithValue(ctx, logrContextKey{}, logger)
 }
@@ -45,12 +46,14 @@ func ContextWithLogr(ctx context.Context, logger logr.Logger) context.Context {
 // Returns an error if no logger is found - caller decides how to handle.
 // This follows Go best practices for error handling.
 //
-// Example:
+// Example with graceful fallback:
 //
 //	logger, err := logger.LogrFromContext(ctx)
 //	if err != nil {
-//	    // Handle missing logger
+//	    // Create default logger as fallback
+//	    logger = logger.CreateLogger()
 //	}
+//	logger.Info("Operation started")
 func LogrFromContext(ctx context.Context) (logr.Logger, error) {
 	logger := ctx.Value(logrContextKey{})
 	if logger == nil {
@@ -109,14 +112,19 @@ func GetLoggerFromExistingWithStrValues(logger *Logger, vals map[string]string) 
 }
 
 // CreateLoggerFrom creates a logr.Logger with the specified configuration.
+// Environment variables (LOG_MODE, LOG_LEVEL, LOG_FORMAT, etc.) will override the provided config.
 // This is the recommended way to create a logger for use with the instrumentation package.
+//
+// The function applies environment variable overrides automatically, so you can provide
+// application defaults that users can override via environment variables.
 //
 // Example with environment defaults:
 //
-//	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
+//	logr := logger.CreateLoggerFrom(logger.DefaultConfig())
 //	ctx = logger.ContextWithLogr(ctx, logr)
+//	// Environment variables can override any field
 //
-// Example with explicit config:
+// Example with custom defaults:
 //
 //	config := logger.Config{
 //	    Sink: logger.SinkConfig{
@@ -130,12 +138,44 @@ func GetLoggerFromExistingWithStrValues(logger *Logger, vals map[string]string) 
 //	    },
 //	}
 //	logr := logger.CreateLoggerFrom(config)
+//	// Users can override: LOG_LEVEL=1 to change to info level
+//	// Or: LOG_MODE=console to output to stderr instead of file
 func CreateLoggerFrom(config Config) logr.Logger {
-	zlog := NewZeroLoggerWithConfig(config)
+	overridenConfig := NewConfigFromEnv(config)
+	zlog := NewZeroLoggerWithConfig(overridenConfig)
 	return zerologr.New(zlog)
 }
 
-// CreateLogger creates a logr.Logger with functional options
+// CreateLogger creates a logr.Logger with functional options.
+// Environment variables (LOG_MODE, LOG_LEVEL, LOG_FORMAT, etc.) will override the options.
+//
+// This provides a clean API for setting application defaults that users can override via
+// environment variables, following the 12-factor app pattern.
+//
+// Example with defaults:
+//
+//	// Creates console logger with JSON format, info level
+//	logr := logger.CreateLogger()
+//	logr.Info("Application started")
+//	// Override: LOG_LEVEL=0 LOG_FORMAT=raw
+//
+// Example with file logging:
+//
+//	logr := logger.CreateLogger(
+//	    logger.WithFileSink("/var/log", "app.log"),
+//	    logger.WithInfoLevel(),
+//	)
+//	// Users can override: LOG_MODE=console to switch to stderr
+//	// Or: LOG_LEVEL=0 to enable debug logging
+//
+// Example with context:
+//
+//	logr := logger.CreateLogger(
+//	    logger.WithConsoleSink(),
+//	    logger.WithDebugLevel(),
+//	)
+//	ctx = logger.ContextWithLogr(ctx, logr)
+//	// Retrieve later: logger.MustLogrFromContext(ctx)
 func CreateLogger(opts ...LoggerOption) logr.Logger {
 	config := DefaultConfig()
 	for _, opt := range opts {

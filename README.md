@@ -1,8 +1,8 @@
 # go-weka-observability
 
 Observability toolkit for Go applications: structured logging with automatic rotation + OpenTelemetry instrumentation.
-
 **📖 [Complete Documentation](docs/logger-configuration-api.md)**
+![Go Weka Observability](docs/observer_gopher.jpg)
 
 ## Installation
 
@@ -12,12 +12,15 @@ go get github.com/weka/go-weka-observability
 
 ## Quick Start
 
+**Note:** All logger creation methods automatically respect environment variables (LOG_MODE, LOG_LEVEL, LOG_FORMAT, etc.) following the 12-factor app pattern. Environment variables always override code defaults.
+
 ### Console Logger (Default)
 
 ```go
 import "github.com/weka/go-weka-observability/logger"
 
-// Simple console logger - perfect for containers/K8s
+// Creates default logger: console sink, JSON format, info level
+// Override via env: LOG_MODE=file LOG_LEVEL=0 LOG_FORMAT=raw
 logr := logger.CreateLogger()
 logr.Info("Application started")
 ```
@@ -25,18 +28,23 @@ logr.Info("Application started")
 ### File Logger with Rotation
 
 ```go
-// File logger with automatic rotation
+// File logger with automatic rotation (overrideable via LOG_* env vars)
 logr := logger.CreateLogger(
     logger.WithFileSink("/var/log", "app.log"),
     logger.WithRotation(100, 5, 28), // 100MB, 5 files, 28 days
 )
+// Override via env: LOG_MODE=console to switch to stderr
 ```
 
-### Environment-Aware Configuration
+### Explicit Configuration
 
 ```go
-// Respects LOG_MODE, LOG_DIR, LOG_FILE_NAME, etc.
-logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
+// Set explicit defaults (still overrideable via LOG_* env vars)
+logr := logger.CreateLogger(
+    logger.WithConsoleSink(),
+    logger.WithInfoLevel(),
+    logger.WithJSONFormat(),
+)
 ctx = logger.ContextWithLogr(ctx, logr)
 
 // Use logger
@@ -52,18 +60,25 @@ import (
     "github.com/weka/go-weka-observability/logger"
 )
 
-// Initialize logger and context
-logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides())
-ctx = logger.ContextWithLogr(ctx, logr)
+// Initialize logger (overrideable via LOG_* env vars)
+logr := logger.CreateLogger(
+    logger.WithConsoleSink(),
+    logger.WithInfoLevel(),
+)
+ctx = logger.ContextWithLogr(ctx, logr) // REQUIRED: Store logger in context!
 
-// Setup OpenTelemetry
-shutdownFn, err := instrumentation.SetupOTelSDK(ctx, "my-service", "1.0.0", logr)
+// Setup OpenTelemetry (OTEL_EXPORTER_OTLP_ENDPOINT env var can override)
+shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(
+    ctx, "my-service", "v1.0.0", logr,
+    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
+)
 if err != nil {
     panic(err)
 }
 defer shutdownFn(ctx)
 
 // Create traced operations with automatic logging
+// GetLogSpan retrieves logger from context, enriches it with trace IDs
 ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
 defer end()
 
@@ -85,7 +100,11 @@ spanLogger.Info("Operation in progress", "key", "value")
 
 ## Environment Variables
 
+**Important:** All logger creation methods (`CreateLogger()`, `CreateLoggerFrom()`) automatically apply environment variable overrides. You can set application defaults in code, and users can override them via environment variables at runtime.
+
 ### Logger Configuration
+
+All environment variables are optional and override code defaults:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -95,7 +114,7 @@ spanLogger.Info("Operation in progress", "key", "value")
 | `LOG_MAX_SIZE_MB` | `100` | Max file size before rotation (MB) |
 | `LOG_MAX_FILES` | `5` | Max number of backup files |
 | `LOG_MAX_AGE_DAYS` | `28` | Max age for log retention (days) |
-| `LOG_LEVEL` | `info` | Minimum log level (trace/debug/info/warn/error) |
+| `LOG_LEVEL` | `1` (info) | Minimum log level (-1=trace, 0=debug, 1=info, 2=warn, 3=error) |
 | `LOG_FORMAT` | `json` | Output format: `json`, `raw`, `plain` |
 | `LOG_TIME_ONLY` | `false` | Use time-only format instead of full timestamp |
 | `LOG_CALLER_DIR_LVL` | `-1` | Number of directory levels in caller field (-1=disabled) |
@@ -105,6 +124,8 @@ spanLogger.Info("Operation in progress", "key", "value")
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OTLP collector endpoint (e.g., `http://localhost:4317`) |
+
+**Note:** `WithDefaultOTLPEndpoint()` sets a code default that `OTEL_EXPORTER_OTLP_ENDPOINT` can override.
 
 See [Logger Configuration Guide](docs/logger-configuration-api.md#environment-configuration) and [Instrumentation Configuration Guide](docs/instrumentation-configuration-api.md#environment-configuration) for complete details.
 
