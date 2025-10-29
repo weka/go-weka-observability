@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -113,4 +114,9 @@ func innerFunc2(ctx context.Context) {
 	defer end()
 
 	logger.Info("innerFunc2 is called", "func", "innerFunc2")
+
+	err := errors.New("debug")
+	// SetError logs the error and marks the span with Error status in OpenTelemetry.
+	// This will make the span appear as failed in tracing UIs (e.g., Signoz, Jaeger, Grafana Tempo).
+	logger.SetError(err, "debug error occurred in innerFunc2", "additional-info", 12345)
 }

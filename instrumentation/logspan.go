@@ -217,13 +217,21 @@ func (ls *SpanLogger) Warn(msg string, keysAndValues ...any) {
 	ls.AddEvent(msg)
 }
 
+// Error logs an error and records it in the span as an event, but does NOT set the span status to Error.
+// Use this for logging errors that don't represent span failure (e.g., handled errors, recoverable issues).
 func (ls *SpanLogger) Error(err error, msg string, keysAndValues ...any) {
 	ls.Logger.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
+	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.RecordError(err)
 }
 
+// SetError logs an error, records it in the span, AND sets the span status to Error.
+// Use this when the error represents a failure of the operation represented by the span.
+// The Error status will be visible in tracing UIs and indicates the span failed.
 func (ls *SpanLogger) SetError(err error, msg string, keysAndValues ...any) {
 	ls.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
+	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
+	ls.RecordError(err)
 	ls.SetStatus(codes.Error, msg)
 	// TODO: Validate that error is not set yet
 }
