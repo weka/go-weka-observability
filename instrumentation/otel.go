@@ -157,46 +157,6 @@ const (
 	OTLPBatchTimeout = time.Second
 )
 
-// SetupOTelSDK bootstraps the OpenTelemetry pipeline.
-// If it does not return an error, make sure to call shutdown for proper cleanup.
-// Additional resource attributes can be provided as key-value pairs.
-//
-// Deprecated: Use SetupOTelSDKFrom or SetupOTelSDKWithOptions instead.
-// This function maintains backward compatibility but doesn't allow endpoint configuration via API.
-//
-// Migration examples:
-//
-// Old:
-//
-//	shutdown, err := instrumentation.SetupOTelSDK(ctx, "service", "v1", logger, "key", "value")
-//
-// New (functional options - recommended):
-//
-//	// Create logger with explicit options (overrideable via LOG_* env vars)
-//	logr := logger.CreateLogger(
-//	    logger.WithConsoleSink(),
-//	    logger.WithInfoLevel(),
-//	)
-//	ctx = logger.ContextWithLogr(ctx, logr)
-//
-//	// Setup OpenTelemetry with options (OTEL_EXPORTER_OTLP_ENDPOINT env var can override)
-//	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
-//	    ctx, "service", "v1.0.0", logr,
-//	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
-//	    instrumentation.WithResourceAttributes("key", "value"),
-//	)
-//
-// New (explicit config):
-//
-//	config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
-//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "service", "v1", logr, config, "key", "value")
-func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
-	return SetupOTelSDKWithOptions(
-		ctx, serviceName, serviceVersion, logger,
-		WithResourceAttributes(keysAndValues...),
-	)
-}
-
 // SetupOTelSDKFrom bootstraps the OpenTelemetry pipeline with explicit configuration.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 //
@@ -289,7 +249,10 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 //	defer end()
 //	spanLogger.Info("Processing request", "user_id", 123)
 func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, opts ...OTelOption) (shutdown func(context.Context) error, err error) {
-	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
+	logger.
+		V(VerbosityLevelDebug).
+		WithCallDepth(CallDepthOffset).
+		Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 
 	// Start with defaults
 	config := DefaultOTelConfig()

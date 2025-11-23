@@ -13,13 +13,13 @@ func init() {
 	// Set default log level and format via environment variables
 	// These are automatically picked up by NewDefaultConfigWithEnvOverrides()
 	if os.Getenv("LOG_LEVEL") == "" {
-		os.Setenv("LOG_LEVEL", "0")
+		_ = os.Setenv("LOG_LEVEL", "0")
 	}
 	if os.Getenv("LOG_FORMAT") == "" {
-		os.Setenv("LOG_FORMAT", "raw")
+		_ = os.Setenv("LOG_FORMAT", "raw")
 	}
 	if os.Getenv("LOG_CALLER_DIR_LVL") == "" {
-		os.Setenv("LOG_CALLER_DIR_LVL", "1")
+		_ = os.Setenv("LOG_CALLER_DIR_LVL", "1")
 	}
 }
 
@@ -45,10 +45,12 @@ func main() {
 		logger.WithConsoleSink(),
 		logger.WithRawFormat(),
 		logger.WithDebugLevel(),
-	).WithName("BasicExample").
+	)
+
+	logr = logr.WithName("BasicExample").
 		WithValues(rootKeysAndValues...)
+
 	ctx = logger.ContextWithLogr(ctx, logr)
-	ctxLogger := logger.MustLogrFromContext(ctx)
 
 	// Setup OpenTelemetry SDK with custom resource attributes
 	// Resource attributes are metadata attached to all spans from this service
@@ -73,10 +75,9 @@ func main() {
 		ctx,
 		"basic-logspan-example",
 		"v1.0.0",
-		ctxLogger,
+		logr,
 		// WithDefaultOTLPEndpoint sets fallback endpoint when OTEL_EXPORTER_OTLP_ENDPOINT is not set
-		// Comment this out if you want to run without a collector
-		// instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
+		instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
 		instrumentation.WithResourceAttributes(rootKeysAndValues...),
 	)
 	if err != nil {
@@ -93,8 +94,10 @@ func main() {
 }
 
 func outerFunc(ctx context.Context) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "outerFunc")
-	defer end()
+	// CreateSpan creates a new child span that you own
+	// You MUST call defer logger.End() to properly close the span
+	ctx, logger := instrumentation.CreateSpan(ctx, "outerFunc")
+	defer logger.End()
 
 	logger.Info("outerFunc is called")
 
@@ -103,20 +106,25 @@ func outerFunc(ctx context.Context) {
 }
 
 func innerFunc1(ctx context.Context) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "innerFunc1")
-	defer end()
+	// CreateSpan creates a new child span (child of outerFunc's span)
+	// The span is automatically linked to its parent through the context
+	_, logger := instrumentation.CreateSpan(ctx, "innerFunc1")
+	defer logger.End()
 
 	logger.Info("innerFunc1 is called", "func", "innerFunc1")
 }
 
 func innerFunc2(ctx context.Context) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "innerFunc2")
-	defer end()
+	// CreateSpan creates a new child span
+	_, logger := instrumentation.CreateSpan(ctx, "innerFunc2")
+	defer logger.End()
 
 	logger.Info("innerFunc2 is called", "func", "innerFunc2")
 
 	err := errors.New("debug")
-	// SetError logs the error and marks the span with Error status in OpenTelemetry.
-	// This will make the span appear as failed in tracing UIs (e.g., Signoz, Jaeger, Grafana Tempo).
+	// SetError logs the error AND marks the span with Error status in OpenTelemetry.
+	// This makes the span appear as failed in tracing UIs (e.g., Signoz, Jaeger, Grafana Tempo).
+	// Use SetError() when the error represents a failure of the operation.
+	// Use Error() when the error is recoverable and the operation succeeds overall.
 	logger.SetError(err, "debug error occurred in innerFunc2", "additional-info", 12345)
 }

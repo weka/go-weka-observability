@@ -65,6 +65,8 @@
 package logger
 
 import (
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
 )
 
@@ -77,6 +79,19 @@ type Logger struct {
 func NewLogger() *Logger {
 	log := NewZeroLogger()
 	return &Logger{log}
+}
+
+// By default, log string in zerolog that uses `caller` will have formart:
+// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
+// without `caller`:
+// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
+// ---
+// This function will change the `logger` field to be put instead of `caller`:
+// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text" additional_field=value
+func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
+	initLogger := NewZeroLoggerWithoutCaller()
+	zerologr.NameFieldName = "caller"
+	return zerologr.New(initLogger)
 }
 
 // NewLoggerWithoutCaller creates a new Logger without caller information

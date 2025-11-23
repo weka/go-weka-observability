@@ -74,8 +74,8 @@ func (s *HTTPServer) handleAPIData(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Create a span for database operation simulation
-	ctx, logger, endSpan := instrumentation.GetLogSpan(ctx, "database.query")
-	defer endSpan()
+	ctx, logger := instrumentation.CreateSpan(ctx, "database.query")
+	defer logger.End()
 
 	logger.Info("Querying database for user data", "query", "SELECT * FROM users")
 
@@ -109,20 +109,21 @@ func (s *HTTPServer) handleAPIProcess(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Create spans for different processing steps
-	ctx, logger, endSpan := instrumentation.GetLogSpan(ctx, "data.validation")
+	ctx, logger := instrumentation.CreateSpan(ctx, "data.validation")
 	logger.Info("Validating input data")
 	time.Sleep(50 * time.Millisecond)
-	endSpan()
+	logger.End()
 
 	// Processing step
-	ctx, logger, endSpan = instrumentation.GetLogSpan(ctx, "data.processing")
+	ctx, logger = instrumentation.CreateSpan(ctx, "data.processing")
+	defer logger.End()
 	logger.Info("Processing business logic", "step", "transformation")
 
 	// Call external service (simulated)
 	s.simulateExternalServiceCall(ctx)
 
 	time.Sleep(150 * time.Millisecond)
-	endSpan()
+	// logger.End() called via defer
 
 	// Final response preparation
 	span := trace.SpanFromContext(ctx)
@@ -144,10 +145,17 @@ func (s *HTTPServer) handleAPIProcess(w http.ResponseWriter, r *http.Request) {
 func (s *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// otelhttp automatically extracts trace context, so we can use r.Context() directly
 	ctx := r.Context()
-	_, logger, endSpan := instrumentation.GetLogSpan(ctx, "health.check")
-	defer endSpan()
 
-	logger.Info("Health check requested")
+	// EXAMPLE: CurrentSpanLogger - log under current span without creating new one
+	// Use this pattern when you don't need a new span, just want to log
+	view := instrumentation.CurrentSpanLogger(ctx)
+	view.Info("Health check requested - logged under current span")
+
+	// For more complex health checks, create a dedicated span
+	_, logger := instrumentation.CreateSpan(ctx, "health.check")
+	defer logger.End()
+
+	logger.Info("Performing detailed health check")
 
 	span := trace.SpanFromContext(ctx)
 	response := Response{
@@ -163,15 +171,15 @@ func (s *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // simulateDataProcessing demonstrates nested span creation for complex operations
 func (s *HTTPServer) simulateDataProcessing(ctx context.Context) {
-	_, logger, endSpan := instrumentation.GetLogSpan(ctx, "data.transform")
-	defer endSpan()
+	_, logger := instrumentation.CreateSpan(ctx, "data.transform")
+	defer logger.End()
 
 	logger.Info("Transforming data", "transformation", "json_to_struct")
 	time.Sleep(30 * time.Millisecond)
 
 	// Nested operation
-	_, logger2, endSpan2 := instrumentation.GetLogSpan(ctx, "data.validate")
-	defer endSpan2()
+	_, logger2 := instrumentation.CreateSpan(ctx, "data.validate")
+	defer logger2.End()
 
 	logger2.Info("Validating transformed data", "validation_rules", 3)
 	time.Sleep(20 * time.Millisecond)
@@ -179,8 +187,8 @@ func (s *HTTPServer) simulateDataProcessing(ctx context.Context) {
 
 // simulateExternalServiceCall demonstrates how to propagate traces to external HTTP calls
 func (s *HTTPServer) simulateExternalServiceCall(ctx context.Context) {
-	_, logger, endSpan := instrumentation.GetLogSpan(ctx, "external.service_call")
-	defer endSpan()
+	_, logger := instrumentation.CreateSpan(ctx, "external.service_call")
+	defer logger.End()
 
 	logger.Info("Calling external service", "service", "analytics-api")
 
@@ -222,8 +230,8 @@ func NewHTTPClient(baseURL string) *HTTPClient {
 // Get performs a GET request with automatic trace propagation via otelhttp
 func (c *HTTPClient) Get(ctx context.Context, endpoint string) (*Response, error) {
 	// Create a span for this business logic operation
-	ctx, logger, endSpan := instrumentation.GetLogSpan(ctx, fmt.Sprintf("client.get_%s", endpoint))
-	defer endSpan()
+	ctx, logger := instrumentation.CreateSpan(ctx, fmt.Sprintf("client.get_%s", endpoint))
+	defer logger.End()
 
 	url := c.baseURL + endpoint
 	logger.Info("Making HTTP GET request", "url", url)
@@ -279,8 +287,8 @@ func (c *HTTPClient) Get(ctx context.Context, endpoint string) (*Response, error
 // Post performs a POST request with automatic trace propagation via otelhttp
 func (c *HTTPClient) Post(ctx context.Context, endpoint string, data any) (*Response, error) {
 	// Create a span for this business logic operation
-	ctx, logger, endSpan := instrumentation.GetLogSpan(ctx, fmt.Sprintf("client.post_%s", endpoint))
-	defer endSpan()
+	ctx, logger := instrumentation.CreateSpan(ctx, fmt.Sprintf("client.post_%s", endpoint))
+	defer logger.End()
 
 	url := c.baseURL + endpoint
 	logger.Info("Making HTTP POST request", "url", url)
@@ -347,8 +355,8 @@ func main() {
 		logger.WithRawFormat(),
 		logger.WithDebugLevel(),
 	).WithName("HTTPTracingExample")
+
 	ctx = logger.ContextWithLogr(ctx, logr)
-	ctxLogger := logger.MustLogrFromContext(ctx)
 
 	// Setup OpenTelemetry SDK with options
 	//
@@ -358,7 +366,7 @@ func main() {
 	// Note: If no collector is running at the endpoint, traces won't be exported but the
 	// example will still run successfully (graceful degradation)
 	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
-		ctx, "http-tracing-example", "v1.0.0", ctxLogger,
+		ctx, "http-tracing-example", "v1.0.0", logr,
 		// WithDefaultOTLPEndpoint sets fallback endpoint when OTEL_EXPORTER_OTLP_ENDPOINT is not set
 		// Comment this out if you want to run without a collector
 		instrumentation.WithDefaultOTLPEndpoint("http://localhost:4317"),
@@ -368,7 +376,7 @@ func main() {
 	}
 	defer func() {
 		if err := shutdown(ctx); err != nil {
-			ctxLogger.Error(err, "Failed to shutdown OTel SDK")
+			logr.Error(err, "Failed to shutdown OTel SDK")
 		}
 	}()
 
@@ -376,7 +384,7 @@ func main() {
 	server := NewHTTPServer("8080")
 	go func() {
 		if err := server.Start(); err != nil && err != http.ErrServerClosed {
-			ctxLogger.Error(err, "HTTP server error")
+			logr.Error(err, "HTTP server error")
 		}
 	}()
 
@@ -386,26 +394,28 @@ func main() {
 	// Create HTTP client
 	client := NewHTTPClient("http://localhost:8080")
 
-	// Start a root trace for the client operations
-	ctx, rootLogger, endRootSpan := instrumentation.GetLogSpan(ctx, "client.workflow")
-	defer endRootSpan()
+	// EXAMPLE: CreateRootSpan - Start a new independent trace for client workflow
+	// This breaks the parent chain and creates a new trace ID
+	// Use this for background jobs or operations that should be tracked independently
+	ctx, rootLogger := instrumentation.CreateRootSpan(ctx, "client.workflow")
+	defer rootLogger.End()
 
-	rootLogger.Info("Starting client workflow demonstration")
+	rootLogger.Info("Starting client workflow demonstration with independent trace")
 
 	// Demonstrate multiple HTTP calls within the same trace
 
-	// 1. Health check
-	healthCheckCtx, healthLogger, endHealthSpan := instrumentation.GetLogSpan(ctx, "workflow.health_check")
+	// 1. Health check - EXAMPLE: CreateSpan for child operation
+	healthCheckCtx, healthLogger := instrumentation.CreateSpan(ctx, "workflow.health_check")
 	healthResp, err := client.Get(healthCheckCtx, "/health")
 	if err != nil {
 		healthLogger.Error(err, "Health check failed")
 	} else {
 		healthLogger.Info("Health check successful", "server_trace_id", healthResp.TraceID)
 	}
-	endHealthSpan()
+	healthLogger.End()
 
-	// 2. Data retrieval
-	getDataCtx, dataLogger, endDataSpan := instrumentation.GetLogSpan(ctx, "workflow.get_data")
+	// 2. Data retrieval - EXAMPLE: CreateSpan for child operation
+	getDataCtx, dataLogger := instrumentation.CreateSpan(ctx, "workflow.get_data")
 	dataResp, err := client.Get(getDataCtx, "/api/data")
 	if err != nil {
 		dataLogger.Error(err, "Data retrieval failed")
@@ -414,10 +424,10 @@ func main() {
 			"server_trace_id", dataResp.TraceID,
 			"data", dataResp.Data)
 	}
-	endDataSpan()
+	dataLogger.End()
 
-	// 3. Data processing
-	processDataCtx, processLogger, endProcessSpan := instrumentation.GetLogSpan(ctx, "workflow.process_data")
+	// 3. Data processing - EXAMPLE: CreateSpan for child operation
+	processDataCtx, processLogger := instrumentation.CreateSpan(ctx, "workflow.process_data")
 	processResp, err := client.Post(processDataCtx, "/api/process", map[string]string{
 		"input": "sample_data_for_processing",
 	})
@@ -428,7 +438,7 @@ func main() {
 			"server_trace_id", processResp.TraceID,
 			"result", processResp.Data)
 	}
-	endProcessSpan()
+	processLogger.End()
 
 	rootLogger.Info("Client workflow completed successfully")
 
@@ -437,8 +447,8 @@ func main() {
 	defer cancel()
 
 	if err := server.Stop(shutdownCtx); err != nil {
-		ctxLogger.Error(err, "Failed to shutdown server")
+		logr.Error(err, "Failed to shutdown server")
 	}
 
-	ctxLogger.Info("HTTP trace propagation example completed")
+	logr.Info("HTTP trace propagation example completed")
 }

@@ -10,7 +10,11 @@ The `instrumentation` package provides OpenTelemetry-based distributed tracing w
 - Automatic trace context propagation
 - Integration with logr.Logger for unified observability
 - Production-ready with graceful degradation (no endpoint = no export)
-- Combined logging and tracing via `GetLogSpan`
+- Combined logging and tracing via SpanLogger API (`CreateSpan`, `CurrentSpanLogger`, `CreateRootSpan`)
+
+**📖 See Also:**
+- **[SpanLogger API Documentation](spanlogger-api.md)** - Complete guide to span creation and lifecycle management
+- **[Examples](../examples/)** - Runnable examples demonstrating span usage patterns
 
 ---
 
@@ -43,11 +47,11 @@ func main() {
     }
     defer shutdown(ctx)
 
-    // Use combined logging and tracing
-    ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
-    defer end()
+    // Create a traced operation with automatic logging
+    ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation", "user", "alice")
+    defer spanLogger.End() // Required!
 
-    spanLogger.Info("Operation started", "user", "alice")
+    spanLogger.Info("Operation started")
 }
 ```
 
@@ -55,6 +59,8 @@ func main() {
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
+
+**📖 For more span API patterns:** See [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootSpan` usage.
 
 ### With Fallback Endpoint (Env Always Takes Precedence)
 
@@ -312,37 +318,54 @@ shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1", l
 
 ## Combined Logging and Tracing
 
-### GetLogSpan - Unified Observability
+### SpanLogger API - Unified Observability
 
-The `GetLogSpan` function creates both a span and a logger with trace context:
+The SpanLogger API provides three functions for different span ownership patterns:
 
+**1. CreateSpan - Create Owned Spans (Most Common)**
 ```go
-ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
-defer end()
+ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "user_id", 123)
+defer spanLogger.End() // Required!
 
-spanLogger.Info("Processing request", "user_id", 123)
+spanLogger.Info("Processing request")
 spanLogger.Error(err, "Failed to process", "retry_count", 3)
 ```
 
-**IMPORTANT:** A logger MUST be stored in context before calling `GetLogSpan`:
+**2. CurrentSpanLogger - Borrow Current Span (Helper Functions)**
+```go
+// In helper functions that just need to log
+view := instrumentation.CurrentSpanLogger(ctx)
+view.Info("Helper function working")
+// No End() call - compile-time safety!
+```
+
+**3. CreateRootSpan - Independent Traces (Background Jobs)**
+```go
+ctx, spanLogger := instrumentation.CreateRootSpan(ctx, "background-job", "job_id", "abc")
+defer spanLogger.End() // Required!
+
+spanLogger.Info("Background job with new trace ID")
+```
+
+**IMPORTANT:** A logger MUST be stored in context before creating spans:
 
 ```go
 // REQUIRED: Store logger in context first
 logr := logger.CreateLogger(logger.WithInfoLevel())
 ctx = logger.ContextWithLogr(ctx, logr)
 
-// Now GetLogSpan can retrieve it
-ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
+// Now span creation functions can retrieve it
+ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation")
 ```
 
 If no logger is in context, a default logger will be created automatically (but you lose control over logger configuration).
 
-**What happens:**
-1. Retrieves logger from context (or creates default if missing)
-2. Creates OpenTelemetry span
-3. Enriches logger with `trace_id` and `span_id` fields
-4. Returns `SpanLogger` that combines both
-5. `defer end()` closes the span
+**📖 Complete Documentation:**
+- **[SpanLogger API Guide](spanlogger-api.md)** - Architecture, design decisions, migration guide
+- **[Examples](../examples/)** - Comprehensive runnable examples
+
+**🔄 Migration Note:**
+The old `GetLogSpan` API is deprecated. See the [migration guide](spanlogger-api.md#migration-from-getlogspan) for upgrade instructions.
 
 ### SpanLogger Methods
 
@@ -627,30 +650,32 @@ if err != nil {
 defer shutdown(ctx)  // ✅ Ensures traces are flushed
 ```
 
-### 2. Use GetLogSpan for All Operations
+### 2. Use SpanLogger API for All Operations
 
 ```go
-// ✅ Good - unified logging and tracing
-ctx, logger, end := instrumentation.GetLogSpan(ctx, "operation")
-defer end()
+// ✅ Good - unified logging and tracing with CreateSpan
+ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+defer logger.End()
 logger.Info("Processing")
 
-// ❌ Bad - separate logging and tracing
+// ❌ Bad - separate logging and tracing (low-level OTel API)
 span := trace.SpanFromContext(ctx)
 logger := logr.FromContext(ctx)
 ```
+
+**📖 See:** [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootSpan` patterns.
 
 ### 3. Use Descriptive Span Names
 
 ```go
 // ✅ Good - specific operation names
-instrumentation.GetLogSpan(ctx, "database.query.users")
-instrumentation.GetLogSpan(ctx, "payment.charge")
-instrumentation.GetLogSpan(ctx, "email.send")
+instrumentation.CreateSpan(ctx, "database.query.users")
+instrumentation.CreateSpan(ctx, "payment.charge")
+instrumentation.CreateSpan(ctx, "email.send")
 
 // ❌ Bad - generic names
-instrumentation.GetLogSpan(ctx, "process")
-instrumentation.GetLogSpan(ctx, "handle")
+instrumentation.CreateSpan(ctx, "process")
+instrumentation.CreateSpan(ctx, "handle")
 ```
 
 ### 4. Add Meaningful Attributes

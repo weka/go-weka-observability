@@ -12,9 +12,11 @@ go get github.com/weka/go-weka-observability
 
 ## 📦 Upgrading from Older Versions?
 
-If you're seeing deprecation warnings for `GetLoggerForContext`, `SetupOTelSDK`, or `NewZeroLogger`, you're using the old API.
+If you're seeing deprecation warnings for `GetLoggerForContext`, `SetupOTelSDK`, `GetLogSpan`, or `NewZeroLogger`, you're using the old API.
 
-**Quick migration example:**
+**Quick migration examples:**
+
+### Logger Initialization
 ```go
 // OLD (deprecated)
 ctx, logger := instrumentation.GetLoggerForContext(ctx, nil, name)
@@ -23,11 +25,34 @@ shutdownFn, err := instrumentation.SetupOTelSDK(ctx, name, version, logger)
 // NEW (recommended - SetupOTelSDK first, then ContextWithLogr)
 logr := logger.CreateLogger(logger.WithInfoLevel())
 shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(ctx, name, version, logr)
-ctx = logger.ContextWithLogr(ctx, logr)  // Must be before GetLogSpan, order with SetupOTelSDK doesn't matter
+ctx = logger.ContextWithLogr(ctx, logr)  // Must be before CreateSpan, order with SetupOTelSDK doesn't matter
+```
+
+### Span Creation (SpanLogger API)
+```go
+// OLD (deprecated)
+ctx, logger, end := instrumentation.GetLogSpan(ctx, "operation")
+defer end()
+
+// NEW - Choose based on your use case:
+
+// 1. Creating owned spans (most common)
+ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+defer logger.End()
+
+// 2. Logging under current span (helper functions)
+view := instrumentation.CurrentSpanLogger(ctx)
+view.Info("Helper logging")
+// No End() call - compile-time safety!
+
+// 3. Independent traces (background jobs)
+ctx, logger := instrumentation.CreateRootSpan(ctx, "background-job")
+defer logger.End()
 ```
 
 📖 **[Complete Migration Guide](docs/logger-initialization-migration.md)** - Covers all migration scenarios including:
 - `GetLoggerForContext` → `CreateLogger` + `ContextWithLogr` migration
+- `GetLogSpan` → `CreateSpan`/`CurrentSpanLogger`/`CreateRootSpan` migration (see [examples](examples/))
 - `zerologr.New()` pattern migration
 - Custom formatting and file logging
 - `LogrFromContextOrDefault` for flexible logger retrieval
@@ -99,17 +124,27 @@ if err != nil {
 }
 defer shutdownFn(ctx)
 
-// Store logger in context for GetLogSpan (can also be done before SetupOTelSDK)
+// Store logger in context (can also be done before SetupOTelSDK)
 ctx = logger.ContextWithLogr(ctx, logr)
 
-// sometime later in your code, you can get the current span-logger from the context:
-
 // Create traced operations with automatic logging
-// GetLogSpan retrieves logger from context, enriches it with trace IDs
-ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
-defer end()
+// Three API functions for different span ownership patterns:
 
-spanLogger.Info("Operation in progress", "key", "value")
+// 1. CreateSpan - Create a new child span (you own it, must call End)
+ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "key", "value")
+defer spanLogger.End() // Required!
+
+spanLogger.Info("Operation in progress")
+
+// 2. CurrentSpanLogger - Borrow current span (no End call, no new span)
+view := instrumentation.CurrentSpanLogger(ctx)
+view.Info("Helper function logging") // Cannot call view.End() - compile error!
+
+// 3. CreateRootSpan - Start independent trace (new trace ID)
+ctx, rootLogger := instrumentation.CreateRootSpan(ctx, "background-job", "job_id", "123")
+defer rootLogger.End() // Required!
+
+rootLogger.Info("Background job with independent trace")
 ```
 
 ## Documentation
