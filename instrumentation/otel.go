@@ -241,16 +241,36 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 // This function follows the same pattern as logger.CreateLogger - functional options
 // set defaults, then environment variables (OTEL_EXPORTER_OTLP_ENDPOINT) can override.
 //
-// Complete example:
+// IMPORTANT: Call Order Flexibility
+//
+//	The logger parameter is used ONLY for logging during SDK initialization.
+//	It is NOT automatically stored in context.
+//
+//	You must call logger.ContextWithLogr() BEFORE calling GetLogSpan, but the order
+//	between ContextWithLogr() and SetupOTelSDKWithOptions() does NOT matter.
+//
+//	Recommended pattern (SetupOTelSDK first):
+//	  1. CreateLogger() - Creates logger instance
+//	  2. SetupOTelSDKWithOptions() - Uses logr param for SDK setup logging
+//	  3. ContextWithLogr() - Stores logger for GetLogSpan to retrieve
+//	  4. GetLogSpan() - Retrieves logger from context (stored in step 3)
+//
+//	Alternative pattern (ContextWithLogr first):
+//	  1. CreateLogger() - Creates logger instance
+//	  2. ContextWithLogr() - Stores logger for GetLogSpan to retrieve
+//	  3. SetupOTelSDKWithOptions() - Uses logr param for SDK setup logging
+//	  4. GetLogSpan() - Retrieves logger from context (stored in step 2)
+//
+// Complete example (recommended pattern):
 //
 //	// Create logger (overrideable via LOG_* env vars)
 //	logr := logger.CreateLogger(
 //	    logger.WithConsoleSink(),
 //	    logger.WithInfoLevel(),
 //	)
-//	ctx = logger.ContextWithLogr(ctx, logr)
 //
-//	// Setup OpenTelemetry (OTEL_EXPORTER_OTLP_ENDPOINT can override endpoint)
+//	// Setup OpenTelemetry first (uses logr param for SDK setup logging)
+//	// OTEL_EXPORTER_OTLP_ENDPOINT env var can override endpoint
 //	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
 //	    ctx, "my-service", "v1.0.0", logr,
 //	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
@@ -261,7 +281,10 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 //	}
 //	defer shutdown(ctx)
 //
-//	// Use combined logging and tracing
+//	// Store in context for GetLogSpan to use later (can also be done before SetupOTelSDK)
+//	ctx = logger.ContextWithLogr(ctx, logr)
+//
+//	// GetLogSpan retrieves logger from context (where we stored it above)
 //	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
 //	defer end()
 //	spanLogger.Info("Processing request", "user_id", 123)

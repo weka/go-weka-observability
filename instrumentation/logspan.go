@@ -80,22 +80,69 @@ func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 	return zerologr.New(initLogger)
 }
 
-// Deprecated: Use logger.CreateLoggerFrom + logger.ContextWithLogr instead.
-// This function has confusing triple behavior based on nil pointer checks:
-//   - If baseLogger is nil and logger exists in context → reuses context logger
-//   - If baseLogger is nil and no logger in context → creates new logger
-//   - If baseLogger is not nil → uses provided logger
+// Deprecated: Use logger.LogrFromContextOrDefault or logger.CreateLogger instead.
 //
-// Migration examples:
+// This function has confusing behavior based on nil pointer checks.
+// The new API provides explicit functions for each use case.
 //
-//	Old: ctx, logger := GetLoggerForContext(ctx, nil, "name", "key", "value")
-//	New: logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverride())
-//	     ctx = logger.ContextWithLogr(ctx, logr)
-//	     logger := logger.MustLogrFromContext(ctx).WithName("name").WithValues("key", "value")
+// ┌─────────────────────────────────────────────────────────────────────────────┐
+// │ CASE 1: baseLogger=nil → retrieves from context OR creates default         │
+// └─────────────────────────────────────────────────────────────────────────────┘
 //
-//	Old: ctx, logger := GetLoggerForContext(ctx, &existingLogger, "name")
-//	New: ctx = logger.ContextWithLogr(ctx, existingLogger)
-//	     logger := logger.MustLogrFromContext(ctx).WithName("name")
+// When you called GetLoggerForContext with nil baseLogger, it would:
+// 1. Try to retrieve logger from context
+// 2. If not found, create a default logger
+//
+// This is EXACTLY what LogrFromContextOrDefault does:
+//
+//	Old:
+//	  ctx, logger := GetLoggerForContext(ctx, nil, "name")
+//
+//	New (simplest - direct equivalent):
+//	  logger := logger.LogrFromContextOrDefault(ctx).WithName("name")
+//
+// If you're also calling SetupOTelSDK and need the logger in context for GetLogSpan:
+//
+//	Old:
+//	  ctx, logger := GetLoggerForContext(ctx, nil, "name")
+//	  shutdownFn, err := SetupOTelSDK(ctx, "service", "v1.0.0", logger)
+//
+//	New (if you want to CREATE a fresh logger and store it):
+//	  logr := logger.CreateLogger()
+//	  shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1.0.0", logr)
+//	  ctx = logger.ContextWithLogr(ctx, logr)          // Store for GetLogSpan later
+//	  logger := logr.WithName("name")
+//
+//	New (if you want to RETRIEVE OR CREATE like the old behavior):
+//	  logr := logger.LogrFromContextOrDefault(ctx)
+//	  shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1.0.0", logr)
+//	  ctx = logger.ContextWithLogr(ctx, logr)          // Ensure it's stored for GetLogSpan
+//	  logger := logr.WithName("name")
+//
+// ┌─────────────────────────────────────────────────────────────────────────────┐
+// │ CASE 2: baseLogger provided (not nil) → uses provided logger               │
+// └─────────────────────────────────────────────────────────────────────────────┘
+//
+//	Old:
+//	  existingLogger := zerologr.New(logger.NewZeroLogger())
+//	  ctx, logger := GetLoggerForContext(ctx, &existingLogger, "name")
+//
+//	New:
+//	  logr := logger.CreateLogger()                    // Create logger
+//	  ctx = logger.ContextWithLogr(ctx, logr)          // Store for GetLogSpan
+//	  logger := logr.WithName("name")                  // Use it
+//
+// IMPORTANT: Why you might need logger.ContextWithLogr():
+//   If your code calls GetLogSpan later, you MUST store the logger in context first:
+//     ctx = logger.ContextWithLogr(ctx, logr)
+//
+//   GetLogSpan retrieves the logger FROM CONTEXT. SetupOTelSDKWithOptions does NOT
+//   do this automatically - it only uses the logger parameter for SDK initialization.
+//
+//   The order between ContextWithLogr() and SetupOTelSDKWithOptions() does NOT matter.
+//   You only need to ensure ContextWithLogr() is called BEFORE GetLogSpan().
+//
+// See docs/logger-initialization-migration.md for complete migration guide.
 func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name string, keysAndValues ...any) (context.Context, logr.Logger) {
 	var logger logr.Logger
 	if baseLogger == nil {

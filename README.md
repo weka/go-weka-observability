@@ -10,6 +10,29 @@ Observability toolkit for Go applications: structured logging with automatic rot
 go get github.com/weka/go-weka-observability
 ```
 
+## 📦 Upgrading from Older Versions?
+
+If you're seeing deprecation warnings for `GetLoggerForContext`, `SetupOTelSDK`, or `NewZeroLogger`, you're using the old API.
+
+**Quick migration example:**
+```go
+// OLD (deprecated)
+ctx, logger := instrumentation.GetLoggerForContext(ctx, nil, name)
+shutdownFn, err := instrumentation.SetupOTelSDK(ctx, name, version, logger)
+
+// NEW (recommended - SetupOTelSDK first, then ContextWithLogr)
+logr := logger.CreateLogger(logger.WithInfoLevel())
+shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(ctx, name, version, logr)
+ctx = logger.ContextWithLogr(ctx, logr)  // Must be before GetLogSpan, order with SetupOTelSDK doesn't matter
+```
+
+📖 **[Complete Migration Guide](docs/logger-initialization-migration.md)** - Covers all migration scenarios including:
+- `GetLoggerForContext` → `CreateLogger` + `ContextWithLogr` migration
+- `zerologr.New()` pattern migration
+- Custom formatting and file logging
+- `LogrFromContextOrDefault` for flexible logger retrieval
+- Complete API reference table
+
 ## Quick Start
 
 **Note:** All logger creation methods automatically respect environment variables (LOG_MODE, LOG_LEVEL, LOG_FORMAT, etc.) following the 12-factor app pattern. Environment variables always override code defaults.
@@ -65,7 +88,6 @@ logr := logger.CreateLogger(
     logger.WithConsoleSink(),
     logger.WithInfoLevel(),
 )
-ctx = logger.ContextWithLogr(ctx, logr) // REQUIRED: Store logger in context!
 
 // Setup OpenTelemetry (OTEL_EXPORTER_OTLP_ENDPOINT env var can override)
 shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(
@@ -76,6 +98,11 @@ if err != nil {
     panic(err)
 }
 defer shutdownFn(ctx)
+
+// Store logger in context for GetLogSpan (can also be done before SetupOTelSDK)
+ctx = logger.ContextWithLogr(ctx, logr)
+
+// sometime later in your code, you can get the current span-logger from the context:
 
 // Create traced operations with automatic logging
 // GetLogSpan retrieves logger from context, enriches it with trace IDs
