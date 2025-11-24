@@ -70,12 +70,11 @@ type ContextValuesKey struct{}
 //   - The created span
 //   - Merged keysAndValues (original + inherited from context)
 func createChildSpan(ctx context.Context, name string, keysAndValues []any) (context.Context, trace.Span, []any) {
-	if Tracer == nil {
-		panic("Tracer is not initialized. Call SetupOTelSDK first")
-	}
+	// Get tracer using smart resolution (context > cache > provider)
+	tracer := getTracer(ctx)
 
 	// Start new child span
-	ctx, span := Tracer.Start(ctx, name)
+	ctx, span := tracer.Start(ctx, name)
 
 	// Merge with values saved previously in context
 	allKeysAndValues := keysAndValues
@@ -104,12 +103,11 @@ func createChildSpan(ctx context.Context, name string, keysAndValues []any) (con
 //   - Updated context with new root span and stored keysAndValues
 //   - The created root span
 func createRootSpanInternal(ctx context.Context, name string, keysAndValues []any) (context.Context, trace.Span) {
-	if Tracer == nil {
-		panic("Tracer is not initialized. Call SetupOTelSDK first")
-	}
+	// Get tracer using smart resolution (context > cache > provider)
+	tracer := getTracer(ctx)
 
 	// Start new root span with WithNewRoot option
-	ctx, span := Tracer.Start(ctx, name, trace.WithNewRoot())
+	ctx, span := tracer.Start(ctx, name, trace.WithNewRoot())
 
 	// Convert to span attributes and set them (no merging for root spans)
 	spanAttrs := getAttributesFromKeysAndValues(keysAndValues...)

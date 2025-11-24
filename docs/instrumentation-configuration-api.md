@@ -114,7 +114,7 @@ SetupOTelSDKInternal() (initialization)
     ↓
     ├─→ TracerProvider (with exporter)
     ├─→ TextMapPropagator (for context propagation)
-    └─→ Global Tracer (accessible via instrumentation.Tracer)
+    └─→ Tracer Cache (with provider detection)
 ```
 
 ### Trace + Log Flow
@@ -559,28 +559,95 @@ func handleOrders(w http.ResponseWriter, r *http.Request) {
 
 ## Testing
 
-### Testing with Instrumentation
+### Testing Pattern 1: Context Override (Recommended)
+
+**Best for**: Parallel tests requiring complete isolation without affecting global state.
 
 ```go
+import (
+    "go.opentelemetry.io/otel/sdk/trace"
+    "go.opentelemetry.io/otel/sdk/trace/tracetest"
+)
+
 func TestProcessOrder(t *testing.T) {
+    t.Parallel()  // ✅ Safe parallel execution
+
     ctx := context.Background()
 
-    // Create test logger
+    // Create test tracer with span recorder
+    recorder := tracetest.NewSpanRecorder()
+    tp := trace.NewTracerProvider(trace.WithSpanProcessor(recorder))
+    tracer := tp.Tracer("test-tracer")
+    defer tp.Shutdown(ctx)
+
+    // Inject via context (no global state mutation)
+    ctx = instrumentation.ContextWithTracer(ctx, tracer)
+
+    // Store logger in context
     logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
 
-    // Setup instrumentation without exporter (testing mode)
-    shutdown, err := instrumentation.SetupOTelSDKWithOptions(
-        ctx, "test-service", "v1.0.0", logr,
-        // No endpoint = no export, but tracing still works
-    )
-    require.NoError(t, err)
-    defer shutdown(ctx)
-
-    // Test your traced functions
-    err = processOrder(ctx, "order-123")
+    // Test your traced functions - all spans use injected tracer
+    err := processOrder(ctx, "order-123")
     assert.NoError(t, err)
+
+    // Verify spans were created
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+    assert.Equal(t, "processOrder", spans[0].Name())
 }
 ```
+
+**Advantages:**
+- ✅ Zero global state mutation
+- ✅ Perfect test isolation
+- ✅ Can run unlimited parallel tests
+- ✅ Each test has independent tracer
+- ✅ No cleanup needed
+
+### Testing Pattern 2: Provider Swap
+
+**Best for**: Testing library behavior with different providers.
+
+```go
+func TestWithProviderSwap(t *testing.T) {
+    t.Parallel()  // ✅ Also safe!
+
+    ctx := context.Background()
+
+    // Create test provider
+    recorder := tracetest.NewSpanRecorder()
+    tp := trace.NewTracerProvider(trace.WithSpanProcessor(recorder))
+    defer tp.Shutdown(ctx)
+
+    // Swap global provider
+    otel.SetTracerProvider(tp)
+
+    // Store logger in context
+    logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // getTracer() automatically detects provider change
+    err := processOrder(ctx, "order-123")
+    assert.NoError(t, err)
+
+    // Verify spans
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+}
+```
+
+**How it works:**
+1. Test swaps global provider with `otel.SetTracerProvider()`
+2. Next span creation detects provider change (pointer comparison)
+3. Cache invalidated, new tracer created from new provider
+4. All subsequent calls use new tracer
+
+**Advantages:**
+- ✅ Tests library's provider integration
+- ✅ Matches OpenTelemetry best practices
+- ✅ No context passing needed for tracer
+- ✅ Automatic cache invalidation
 
 ### Testing with Custom Endpoint
 
@@ -601,6 +668,88 @@ func TestWithCollector(t *testing.T) {
     // Your tests
 }
 ```
+
+### Testing Pattern 3: Helper Functions (Simplest)
+
+**Best for**: Quick test setup with minimal boilerplate.
+
+The instrumentation package provides two helper functions for common testing scenarios:
+
+#### SetupOTELTester (Parallel-Safe)
+
+For most tests, use `SetupOTELTester()` which is safe for parallel execution:
+
+```go
+func TestMyFeature(t *testing.T) {
+    t.Parallel()  // ✅ Safe for parallel execution
+
+    ctx := context.Background()
+    ctx, recorder := instrumentation.SetupOTELTester(ctx)
+    defer recorder.Shutdown(context.Background())
+
+    // Store logger in context
+    logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // Your test code using CreateSpan, CreateRootSpan, etc.
+    ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation")
+    defer spanLogger.End()
+
+    spanLogger.Info("Processing request")
+
+    // Assertions
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+    assert.Equal(t, "operation", spans[0].Name())
+}
+```
+
+**Advantages:**
+- ✅ Minimal boilerplate (2 lines setup)
+- ✅ Safe for parallel tests (context-based tracer isolation)
+- ✅ Sets up propagator for production code that relies on trace propagation
+- ✅ Returns context with cached tracer and span recorder
+- ✅ Perfect for unit tests
+
+**Note:**
+This function sets the global `TextMapPropagator` (required for propagation to work), but this is safe for parallel tests because:
+- The propagator setup uses `sync.Once` (only happens once per process, efficient for 100+ tests)
+- Tracer isolation is achieved via context (no cross-test interference)
+- OpenTelemetry propagators are only available via global state (no alternative)
+
+#### SetupOTELTesterWithProvider (Sequential Tests Only)
+
+For integration tests that need TextMapPropagator (distributed tracing):
+
+```go
+func TestDistributedTracing(t *testing.T) {
+    // ⚠️ NO t.Parallel() - not safe with provider swap
+
+    ctx := context.Background()
+    ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+    defer recorder.Shutdown(context.Background())
+
+    // Store logger in context
+    logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // Test code that uses propagation (HTTP headers, etc.)
+    // CreateSpan will use the swapped provider automatically
+    // Propagator is already set up for distributed tracing
+
+    // Assertions
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+}
+```
+
+**When to use:**
+- ⚠️ Integration tests requiring TextMapPropagator
+- ⚠️ Tests verifying distributed tracing behavior
+- ⚠️ Tests that need provider swap behavior
+
+**Warning:**
+This function swaps the global TracerProvider and TextMapPropagator which are shared across all goroutines. While the global state itself is thread-safe, parallel tests will interfere with each other by overriding each other's providers.
 
 ---
 

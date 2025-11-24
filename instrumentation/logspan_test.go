@@ -12,7 +12,6 @@ import (
 	"github.com/weka/go-weka-observability/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
@@ -21,7 +20,6 @@ type SpanLoggerAPISuite struct {
 	suite.Suite
 	ctx       context.Context
 	recorder  *tracetest.SpanRecorder
-	tp        *trace.TracerProvider
 	logOutput *bytes.Buffer // Captures log output for verification
 }
 
@@ -42,19 +40,13 @@ func (s *SpanLoggerAPISuite) SetupTest() {
 	})
 	s.ctx = logger.ContextWithLogr(s.ctx, logr)
 
-	// Setup SpanRecorder for simpler span testing
-	s.recorder = tracetest.NewSpanRecorder()
-	s.tp = trace.NewTracerProvider(
-		trace.WithSpanProcessor(s.recorder),
-	)
-
-	// Set the global tracer for instrumentation package
-	instrumentation.Tracer = s.tp.Tracer("test")
+	// Use SetupOTELTesterWithProvider for testify suite (sequential tests)
+	s.ctx, s.recorder = instrumentation.SetupOTELTesterWithProvider(s.ctx)
 }
 
 func (s *SpanLoggerAPISuite) TearDownTest() {
-	if s.tp != nil {
-		_ = s.tp.Shutdown(context.Background())
+	if s.recorder != nil {
+		_ = s.recorder.Shutdown(context.Background())
 	}
 }
 

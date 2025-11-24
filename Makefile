@@ -6,7 +6,7 @@ tidy:
 build:
 	go build ./...
 
-test:
+test: vet
 	go test ./...
 
 lint:

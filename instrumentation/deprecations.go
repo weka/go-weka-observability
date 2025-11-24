@@ -10,7 +10,46 @@ import (
 	zerologger "github.com/weka/go-weka-observability/logger"
 )
 
+// Tracer is the global tracer instance.
+//
+// Deprecated: Use CreateSpan/CreateRootSpan instead. Will be removed in v2.0.
+//
+// Reason: Global tracer doesn't support provider changes, test isolation, or context-based injection.
+// The new trace management system with smart resolution is more flexible and test-friendly.
+//
+// # How Tracer Gets Set
+//
+// This variable is NOT set directly by SetupOTelSDKWithOptions(). Instead:
+//
+//  1. SetupOTelSDKWithOptions() calls otel.SetTracerProvider(provider)
+//  2. When you first create a span (CreateSpan/CreateRootSpan), getTracer(ctx) is called
+//  3. getTracer() creates a tracer from the provider and caches it
+//  4. As part of caching, this Tracer variable is automatically synced for backward compatibility
+//
+// This lazy initialization pattern means:
+//   - The provider is the source of truth (not this variable)
+//   - Provider swaps are detected automatically (cache invalidates)
+//   - Test tracer injection via ContextWithTracer() works seamlessly
+//
+// # Migration Guide
+//
+// Application code:
+//   - OLD: ctx, span := instrumentation.Tracer.Start(ctx, "op")
+//   - NEW: ctx, logger := instrumentation.CreateSpan(ctx, "op")
+//
+// Test code:
+//   - Use ContextWithTracer(ctx, testTracer) for context-based injection
+//   - OR use otel.SetTracerProvider(testProvider) for provider swap
+//   - Both patterns are supported and automatically detected
+//
+// Direct assignment (instrumentation.Tracer = myTracer) will be overwritten on next span
+// creation, so use ContextWithTracer() or otel.SetTracerProvider() instead.
+var Tracer trace.Tracer
+
 // Deprecated: Use logger.NewZerologrWithLoggerNameInsteadCaller instead.
+//
+// Reason: This function belongs in the logger package, not instrumentation package.
+// Moving it improves package cohesion and clarity of responsibility.
 //
 // By default, log string in zerolog that uses `caller` will have formart:
 // 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
@@ -26,6 +65,10 @@ func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 }
 
 // Deprecated: Use logger.LogrFromContextOrDefault or logger.CreateLogger instead.
+//
+// Reason: Confusing API with overloaded behavior based on nil pointer checks.
+// The new API provides explicit functions for each use case (retrieve vs create),
+// making code intent clearer and reducing cognitive load.
 //
 // This function has confusing behavior based on nil pointer checks.
 // The new API provides explicit functions for each use case.
@@ -107,7 +150,13 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 
 // GetSpanForContext creates or retrieves a span from context.
 //
-// Deprecated: Use the new SpanLogger API instead:
+// Deprecated: Use CreateSpan/CurrentSpanLogger/CreateRootSpan instead.
+//
+// Reason: Returns raw trace.Span without integrated logging, requires manual trace ID correlation,
+// and has confusing empty-string overload. The new SpanLogger API unifies logging and tracing,
+// provides compile-time safety (owned vs borrowed spans), and eliminates manual trace ID management.
+//
+// Migration:
 //   - For creating new child spans: instrumentation.CreateSpan(ctx, "operation", keysAndValues...)
 //   - For accessing current span: instrumentation.CurrentSpanLogger(ctx) or trace.SpanFromContext(ctx)
 //   - For creating root spans: instrumentation.CreateRootSpan(ctx, "operation", keysAndValues...)
@@ -150,7 +199,11 @@ func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (
 
 // GetLogSpan creates or reuses a logger from context and creates a span for an operation.
 //
-// Deprecated: This function has confusing overloaded behavior based on empty string.
+// Deprecated: Use CreateSpan/CurrentSpanLogger/CreateRootSpan instead.
+//
+// Reason: Confusing empty-string overload (name="" reuses span, name="op" creates span).
+// Returns separate logger and end() function instead of unified SpanLogger type.
+// The new API provides clear, type-safe alternatives for each use case with better ergonomics.
 //
 // Migration Guide:
 //
@@ -282,7 +335,12 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 // Additional resource attributes can be provided as key-value pairs.
 //
-// Deprecated: Use SetupOTelSDKFrom or SetupOTelSDKWithOptions instead.
+// Deprecated: Use SetupOTelSDKWithOptions or SetupOTelSDKFrom instead.
+//
+// Reason: Doesn't support endpoint configuration via API (only env vars).
+// The new functional options API provides flexible configuration with clear precedence
+// (env overrides code) and better discoverability through named options.
+//
 // This function maintains backward compatibility but doesn't allow endpoint configuration via API.
 //
 // Migration examples:
