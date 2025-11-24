@@ -12,7 +12,9 @@ import (
 	"github.com/weka/go-weka-observability/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // SpanLoggerAPISuite tests the new SpanLogger API with type-safe span ownership
@@ -538,3 +540,318 @@ func Example_errorHandling() {
 // Helper functions for examples
 func someRecoverableOperation() error { return nil }
 func someCriticalOperation() error    { return nil }
+
+// ==================================================================================================
+// Tests for new type-safe API: CreateSpanWithOptions, CreateRootSpanWithOptions, convenience functions
+// ==================================================================================================
+
+// TestCreateSpanWithOptions_WithSpanKind verifies CreateSpanWithOptions sets span kind correctly
+func (s *SpanLoggerAPISuite) TestCreateSpanWithOptions_WithSpanKind() {
+	ctx, spanLogger := instrumentation.CreateSpanWithOptions(s.ctx, "http.request",
+		trace.WithSpanKind(trace.SpanKindServer),
+	)
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("http.request", spans[0].Name())
+	s.Equal(trace.SpanKindServer, spans[0].SpanKind())
+}
+
+// TestCreateSpanWithOptions_WithAttributes verifies attributes are set correctly
+func (s *SpanLoggerAPISuite) TestCreateSpanWithOptions_WithAttributes() {
+	ctx, spanLogger := instrumentation.CreateSpanWithOptions(s.ctx, "api.call",
+		trace.WithAttributes(
+			attribute.String("http.method", "GET"),
+			attribute.String("http.url", "/api/users"),
+			attribute.Int("http.status_code", 200),
+		),
+	)
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	attrs := spans[0].Attributes()
+
+	// Verify attributes are present
+	s.Contains(attrs, attribute.String("http.method", "GET"))
+	s.Contains(attrs, attribute.String("http.url", "/api/users"))
+	s.Contains(attrs, attribute.Int("http.status_code", 200))
+}
+
+// TestCreateSpanWithOptions_MultipleOptions verifies multiple span options work together
+func (s *SpanLoggerAPISuite) TestCreateSpanWithOptions_MultipleOptions() {
+	ctx, spanLogger := instrumentation.CreateSpanWithOptions(s.ctx, "complex.operation",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.operation", "SELECT"),
+		),
+	)
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("complex.operation", spans[0].Name())
+	s.Equal(trace.SpanKindClient, spans[0].SpanKind())
+
+	attrs := spans[0].Attributes()
+	s.Contains(attrs, attribute.String("db.system", "postgresql"))
+	s.Contains(attrs, attribute.String("db.operation", "SELECT"))
+}
+
+// TestCreateSpanWithOptions_NoOptions verifies CreateSpanWithOptions works without options
+func (s *SpanLoggerAPISuite) TestCreateSpanWithOptions_NoOptions() {
+	ctx, spanLogger := instrumentation.CreateSpanWithOptions(s.ctx, "simple.operation")
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("simple.operation", spans[0].Name())
+	// SpanKind defaults to Internal when not specified
+	s.Equal(trace.SpanKindInternal, spans[0].SpanKind())
+}
+
+// TestCreateRootSpanWithOptions_BreaksParentChain verifies root span has new trace ID
+func (s *SpanLoggerAPISuite) TestCreateRootSpanWithOptions_BreaksParentChain() {
+	// Create parent span
+	ctx, parentLogger := instrumentation.CreateSpan(s.ctx, "parent")
+	parentSpan := trace.SpanFromContext(ctx)
+	parentTraceID := parentSpan.SpanContext().TraceID()
+
+	// Create root span - should have different trace ID
+	_, rootLogger := instrumentation.CreateRootSpanWithOptions(ctx, "root.operation",
+		trace.WithAttributes(attribute.String("job_id", "123")),
+	)
+
+	rootLogger.End()
+	parentLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 2)
+
+	// Find root span (by name)
+	var rootSpan sdktrace.ReadOnlySpan
+	for _, span := range spans {
+		if span.Name() == "root.operation" {
+			rootSpan = span
+			break
+		}
+	}
+
+	s.NotNil(rootSpan)
+	// Root span should have different trace ID than parent
+	s.NotEqual(parentTraceID, rootSpan.SpanContext().TraceID())
+	// Root span should not have parent span ID
+	s.False(rootSpan.Parent().IsValid())
+}
+
+// TestCreateServerSpan_SetsServerSpanKind verifies convenience function sets correct span kind
+func (s *SpanLoggerAPISuite) TestCreateServerSpan_SetsServerSpanKind() {
+	ctx, spanLogger := instrumentation.CreateServerSpan(s.ctx, "http.GET",
+		trace.WithAttributes(
+			attribute.String("http.url", "/api/users"),
+		),
+	)
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("http.GET", spans[0].Name())
+	s.Equal(trace.SpanKindServer, spans[0].SpanKind())
+	s.Contains(spans[0].Attributes(), attribute.String("http.url", "/api/users"))
+}
+
+// TestCreateClientSpan_SetsClientSpanKind verifies convenience function sets correct span kind
+func (s *SpanLoggerAPISuite) TestCreateClientSpan_SetsClientSpanKind() {
+	ctx, spanLogger := instrumentation.CreateClientSpan(s.ctx, "http.GET",
+		trace.WithAttributes(
+			attribute.String("http.url", "https://api.example.com"),
+		),
+	)
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("http.GET", spans[0].Name())
+	s.Equal(trace.SpanKindClient, spans[0].SpanKind())
+}
+
+// TestCreateProducerSpan_SetsProducerSpanKind verifies convenience function sets correct span kind
+func (s *SpanLoggerAPISuite) TestCreateProducerSpan_SetsProducerSpanKind() {
+	ctx, spanLogger := instrumentation.CreateProducerSpan(s.ctx, "kafka.publish",
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination", "orders"),
+		),
+	)
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("kafka.publish", spans[0].Name())
+	s.Equal(trace.SpanKindProducer, spans[0].SpanKind())
+}
+
+// TestCreateConsumerSpan_SetsConsumerSpanKind verifies convenience function sets correct span kind
+func (s *SpanLoggerAPISuite) TestCreateConsumerSpan_SetsConsumerSpanKind() {
+	ctx, spanLogger := instrumentation.CreateConsumerSpan(s.ctx, "kafka.process",
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.source", "orders"),
+		),
+	)
+
+	s.NotNil(ctx)
+	s.NotNil(spanLogger)
+	spanLogger.End()
+
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("kafka.process", spans[0].Name())
+	s.Equal(trace.SpanKindConsumer, spans[0].SpanKind())
+}
+
+// TestCreateSpanWithOptions_MaintainsSpanLoggerIntegration verifies logging works with new API
+func (s *SpanLoggerAPISuite) TestCreateSpanWithOptions_MaintainsSpanLoggerIntegration() {
+	s.resetLogOutput()
+
+	_, spanLogger := instrumentation.CreateSpanWithOptions(s.ctx, "test.logging",
+		trace.WithSpanKind(trace.SpanKindClient),
+	)
+
+	spanLogger.Info("Operation started", "step", 1)
+	spanLogger.Debug("Processing data", "count", 42)
+
+	err := errors.New("test error")
+	spanLogger.Error(err, "Non-critical error")
+
+	spanLogger.End()
+
+	// Verify logging works
+	s.assertLogContains("Operation started")
+	s.assertLogContains("Processing data")
+	s.assertLogContains("Non-critical error")
+
+	// Verify span events
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	events := spans[0].Events()
+	s.NotEmpty(events)
+}
+
+// TestCreateSpanWithOptions_WithValues_EnrichesLogger verifies WithValues works with new API
+func (s *SpanLoggerAPISuite) TestCreateSpanWithOptions_WithValues_EnrichesLogger() {
+	s.resetLogOutput()
+
+	_, spanLogger := instrumentation.CreateSpanWithOptions(s.ctx, "enrichment.test",
+		trace.WithAttributes(attribute.String("initial", "value")),
+	)
+
+	// Enrich logger after span creation
+	_, enrichedLogger := spanLogger.WithValues("request_id", "req-123", "user_id", 456)
+
+	enrichedLogger.Info("Enriched log message")
+	enrichedLogger.End()
+
+	// Verify enrichment appears in logs
+	s.assertLogContains("request_id")
+	s.assertLogContains("req-123")
+	s.assertLogContains("user_id")
+	s.assertLogContains("Enriched log message")
+}
+
+// TestGetTracer_ReturnsValidTracer verifies GetTracer returns working tracer
+func (s *SpanLoggerAPISuite) TestGetTracer_ReturnsValidTracer() {
+	tracer := instrumentation.GetTracer(s.ctx)
+
+	s.NotNil(tracer)
+
+	// Use tracer directly to create span
+	ctx, span := tracer.Start(s.ctx, "direct.span",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("custom", "attribute")),
+	)
+
+	// Can still get SpanLoggerView for current span
+	view := instrumentation.CurrentSpanLogger(ctx)
+	view.Info("Logging under custom span")
+
+	// End span before verification
+	span.End()
+
+	// Verify span was created
+	spans := s.recorder.Ended()
+	s.Len(spans, 1)
+	s.Equal("direct.span", spans[0].Name())
+	s.Equal(trace.SpanKindInternal, spans[0].SpanKind())
+	s.Contains(spans[0].Attributes(), attribute.String("custom", "attribute"))
+}
+
+// TestConvenienceFunctions_AllSpanKinds verifies all convenience functions
+func (s *SpanLoggerAPISuite) TestConvenienceFunctions_AllSpanKinds() {
+	testCases := []struct {
+		name              string
+		createFunc        func(context.Context, string, ...trace.SpanStartOption) (context.Context, *instrumentation.SpanLogger)
+		expectedSpanKind  trace.SpanKind
+	}{
+		{
+			name:             "CreateServerSpan",
+			createFunc:       instrumentation.CreateServerSpan,
+			expectedSpanKind: trace.SpanKindServer,
+		},
+		{
+			name:             "CreateClientSpan",
+			createFunc:       instrumentation.CreateClientSpan,
+			expectedSpanKind: trace.SpanKindClient,
+		},
+		{
+			name:             "CreateProducerSpan",
+			createFunc:       instrumentation.CreateProducerSpan,
+			expectedSpanKind: trace.SpanKindProducer,
+		},
+		{
+			name:             "CreateConsumerSpan",
+			createFunc:       instrumentation.CreateConsumerSpan,
+			expectedSpanKind: trace.SpanKindConsumer,
+		},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			// Reset recorder for each test
+			if err := s.recorder.Shutdown(context.Background()); err != nil {
+				s.T().Logf("Failed to shutdown recorder: %v", err)
+			}
+			s.ctx, s.recorder = instrumentation.SetupOTELTesterWithProvider(s.ctx)
+
+			_, spanLogger := tc.createFunc(s.ctx, tc.name)
+			spanLogger.End()
+
+			spans := s.recorder.Ended()
+			s.Len(spans, 1)
+			s.Equal(tc.expectedSpanKind, spans[0].SpanKind())
+		})
+	}
+}

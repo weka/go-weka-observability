@@ -22,9 +22,32 @@ var (
 // tracerKey is the context key type for storing custom tracers
 type tracerKey struct{}
 
-// getTracer returns the appropriate tracer for creating spans.
-// It uses a smart cache that automatically invalidates when the
-// global TracerProvider changes (e.g., in tests).
+// GetTracer returns the tracer instance for direct OpenTelemetry span creation.
+//
+// ⚠️ WARNING: Direct tracer usage bypasses SpanLogger integration (no automatic
+// log/trace correlation, manual span.End() required, no compile-time safety).
+// Consider using CreateSpanWithOptions() or convenience functions instead.
+//
+// # When to Use GetTracer
+//
+// Use this ONLY when you need direct access to the OpenTelemetry tracer API
+// and cannot use CreateSpanWithOptions/CreateRootSpanWithOptions. Common reasons:
+//   - Need to create spans without SpanLogger integration (performance-critical zero-allocation paths)
+//   - Integration with third-party libraries expecting trace.Tracer
+//   - Custom span lifecycle management not supported by SpanLogger
+//   - Need OpenTelemetry span options not yet wrapped by this library
+//
+// For most use cases, prefer CreateSpanWithOptions with trace.SpanStartOption arguments.
+//
+// # Loss of SpanLogger Integration
+//
+// When using GetTracer, you lose:
+//   - Automatic logger enrichment with trace IDs
+//   - Unified logging + tracing via SpanLogger methods (Info, Error, etc.)
+//   - Compile-time safety (must manually call span.End())
+//   - Integration with logger.WithValues() for context enrichment
+//
+// You can still get a SpanLoggerView for the current span using CurrentSpanLogger(ctx).
 //
 // # Provider Integration
 //
@@ -49,7 +72,20 @@ type tracerKey struct{}
 //
 // Uses double-check locking pattern: RLock for fast read path, upgrades to Lock
 // only when cache invalid. Safe for concurrent access from multiple goroutines.
-func getTracer(ctx context.Context) trace.Tracer {
+//
+// # Example - Advanced span creation:
+//
+//	tracer := instrumentation.GetTracer(ctx)
+//	ctx, span := tracer.Start(ctx, "custom-operation",
+//	    trace.WithSpanKind(trace.SpanKindInternal),
+//	    trace.WithAttributes(attribute.String("key", "value")),
+//	)
+//	defer span.End()
+//
+//	// Can still get SpanLogger for current span
+//	view := instrumentation.CurrentSpanLogger(ctx)
+//	view.Info("Logging under custom span")
+func GetTracer(ctx context.Context) trace.Tracer {
 	// Priority 1: Context override (tests, multi-tenant scenarios)
 	if tracer := ctx.Value(tracerKey{}); tracer != nil {
 		return tracer.(trace.Tracer)

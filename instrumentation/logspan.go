@@ -71,7 +71,7 @@ type ContextValuesKey struct{}
 //   - Merged keysAndValues (original + inherited from context)
 func createChildSpan(ctx context.Context, name string, keysAndValues []any) (context.Context, trace.Span, []any) {
 	// Get tracer using smart resolution (context > cache > provider)
-	tracer := getTracer(ctx)
+	tracer := GetTracer(ctx)
 
 	// Start new child span
 	ctx, span := tracer.Start(ctx, name)
@@ -104,7 +104,7 @@ func createChildSpan(ctx context.Context, name string, keysAndValues []any) (con
 //   - The created root span
 func createRootSpanInternal(ctx context.Context, name string, keysAndValues []any) (context.Context, trace.Span) {
 	// Get tracer using smart resolution (context > cache > provider)
-	tracer := getTracer(ctx)
+	tracer := GetTracer(ctx)
 
 	// Start new root span with WithNewRoot option
 	ctx, span := tracer.Start(ctx, name, trace.WithNewRoot())

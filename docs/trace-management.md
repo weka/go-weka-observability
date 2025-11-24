@@ -18,7 +18,7 @@
 
 ### Core Types
 
-- **`getTracer(ctx)`** - Smart tracer resolution function that orchestrates the three-tier lookup strategy. Not exported; used internally by `CreateSpan`/`CreateRootSpan`.
+- **`GetTracer(ctx)`** - Public API for smart tracer resolution that orchestrates the three-tier lookup strategy. Used internally by all span creation functions (`CreateSpan`, `CreateRootSpan`, `CreateSpanWithOptions`, etc.). Can be called directly for advanced use cases requiring raw tracer access.
 
 - **`ContextWithTracer(ctx, tracer)`** - Public API for context-based tracer injection. Primary use case: parallel test isolation. Stores tracer in context using unexported `tracerKey{}` type.
 
@@ -71,7 +71,7 @@
 ```
 CreateSpan(ctx, "operation") called
          ↓
-    getTracer(ctx)
+    GetTracer(ctx)  ← Public API, can be called directly
          ↓
  ┌───────────────────┐
  │ Priority 1        │
@@ -135,14 +135,14 @@ tp1 := trace.NewTracerProvider(...)
 otel.SetTracerProvider(tp1)
 
 _, span1 := instrumentation.CreateSpan(ctx, "op1")
-// → getTracer() creates tracer, caches (provider=tp1)
+// → GetTracer() creates tracer, caches (provider=tp1)
 
 // Provider swap (common in tests)
 tp2 := trace.NewTracerProvider(...)
 otel.SetTracerProvider(tp2)
 
 _, span2 := instrumentation.CreateSpan(ctx, "op2")
-// → getTracer() detects tp2 != tp1, invalidates cache, creates new tracer
+// → GetTracer() detects tp2 != tp1, invalidates cache, creates new tracer
 ```
 
 ### Integration Points
@@ -150,7 +150,11 @@ _, span2 := instrumentation.CreateSpan(ctx, "op2")
 **Consumed by**:
 - `CreateSpan(ctx, name, kv...)` - Creates child spans using resolved tracer
 - `CreateRootSpan(ctx, name, kv...)` - Creates root spans using resolved tracer
+- `CreateSpanWithOptions(ctx, name, opts...)` - Type-safe child span creation
+- `CreateRootSpanWithOptions(ctx, name, opts...)` - Type-safe root span creation
+- `CreateServerSpan`, `CreateClientSpan`, `CreateProducerSpan`, `CreateConsumerSpan` - Convenience functions with pre-configured span kinds
 - `GetSpanForContext()` (deprecated) - Backward compatibility wrapper
+- **Direct usage**: Advanced users can call `GetTracer(ctx)` directly when they need raw tracer access without SpanLogger integration
 
 **Depends on**:
 - `otel.GetTracerProvider()` - Global provider (set by `SetupOTelSDKWithOptions`)
@@ -161,6 +165,170 @@ _, span2 := instrumentation.CreateSpan(ctx, "op2")
 **Events/Hooks**:
 - Provider change detection automatically invalidates cache
 - Cache updates synchronize deprecated `Tracer` variable for backward compatibility
+
+## GetTracer() Public API
+
+### Overview
+
+`GetTracer(ctx)` is the public API for accessing the smart tracer resolution system. While most application code should use the high-level SpanLogger API (`CreateSpan`, `CreateSpanWithOptions`, etc.), direct tracer access is available for advanced scenarios.
+
+### When to Use GetTracer()
+
+**Use GetTracer() when**:
+- Integrating with OpenTelemetry libraries that require a raw `trace.Tracer`
+- Building custom instrumentation utilities
+- Implementing specialized span creation patterns not covered by the SpanLogger API
+- Migrating legacy code that used the deprecated `Tracer` variable
+
+**Don't use GetTracer() for**:
+- Regular application tracing (use `CreateSpan`, `CreateSpanWithOptions`, etc.)
+- Any scenario where SpanLogger integration is beneficial (structured logging + tracing)
+- Simple span creation with attributes/span kinds (use convenience functions)
+
+### Trade-offs
+
+**What you gain**:
+- Full control over OpenTelemetry span creation
+- Access to all `trace.Tracer.Start()` options
+- Flexibility for custom instrumentation patterns
+- Integration with third-party OTel libraries
+
+**What you lose**:
+- SpanLogger integration (no automatic log/trace correlation)
+- Compile-time safety (raw `trace.Span` doesn't enforce `End()` calls)
+- Structured logging with trace context
+- Logger enrichment with operation context
+
+### Examples
+
+#### Basic Tracer Access
+
+```go
+import (
+    "go.opentelemetry.io/otel/trace"
+    "github.com/weka/go-weka-observability/instrumentation"
+)
+
+func customInstrumentation(ctx context.Context) {
+    // Get the smart-resolved tracer
+    tracer := instrumentation.GetTracer(ctx)
+
+    // Use it directly for OpenTelemetry span creation
+    ctx, span := tracer.Start(ctx, "custom-operation",
+        trace.WithSpanKind(trace.SpanKindInternal),
+        trace.WithAttributes(
+            attribute.String("custom.key", "value"),
+        ),
+    )
+    defer span.End()
+
+    // Manual attribute setting
+    span.SetAttributes(attribute.Int("result", 42))
+
+    // Note: No automatic logging or trace ID injection
+}
+```
+
+#### Integration with OTel Libraries
+
+```go
+import (
+    "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+    "github.com/weka/go-weka-observability/instrumentation"
+)
+
+func setupHTTPClient(ctx context.Context) *http.Client {
+    // Get tracer for OTel library integration
+    tracer := instrumentation.GetTracer(ctx)
+
+    // Use with third-party OTel instrumentation
+    transport := otelhttp.NewTransport(
+        http.DefaultTransport,
+        otelhttp.WithTracerProvider(trace.TracerProvider{
+            Tracer: func(name string, opts ...trace.TracerOption) trace.Tracer {
+                return tracer
+            },
+        }),
+    )
+
+    return &http.Client{Transport: transport}
+}
+```
+
+#### Custom Span Context Manipulation
+
+```go
+func advancedSpanManagement(ctx context.Context) {
+    tracer := instrumentation.GetTracer(ctx)
+
+    // Create span with custom trace ID (advanced use case)
+    spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+        TraceID:    traceID,
+        SpanID:     spanID,
+        TraceFlags: trace.FlagsSampled,
+    })
+
+    ctx = trace.ContextWithSpanContext(ctx, spanContext)
+    ctx, span := tracer.Start(ctx, "custom-trace-operation")
+    defer span.End()
+
+    // Complex span manipulation...
+}
+```
+
+### Comparison: GetTracer() vs SpanLogger API
+
+```go
+// Using GetTracer() directly
+func withRawTracer(ctx context.Context) {
+    tracer := instrumentation.GetTracer(ctx)
+    ctx, span := tracer.Start(ctx, "database-query",
+        trace.WithSpanKind(trace.SpanKindClient),
+        trace.WithAttributes(
+            attribute.String("db.system", "postgresql"),
+        ),
+    )
+    defer span.End()
+
+    // Manual logging (no trace correlation)
+    log.Info("Querying database")
+    span.SetAttributes(attribute.Int("rows", 100))
+}
+
+// Using SpanLogger API (recommended for most cases)
+func withSpanLogger(ctx context.Context) {
+    // Create client span
+    ctx, logger := instrumentation.CreateClientSpan(ctx, "database-query")
+    defer logger.End()
+
+    // Add attributes to BOTH logger and span using WithValues
+    ctx, logger = logger.WithValues(
+        "db.system", "postgresql",
+        "rows", 100,
+    )
+
+    // Unified logging with automatic trace correlation
+    logger.Info("Querying database")
+    // ^ Log automatically includes trace_id, span_id, db.system, rows
+}
+```
+
+### Migration from Deprecated Tracer Variable
+
+```go
+// OLD (deprecated)
+ctx, span := instrumentation.Tracer.Start(ctx, "operation")
+defer span.End()
+
+// NEW (advanced cases only)
+tracer := instrumentation.GetTracer(ctx)
+ctx, span := tracer.Start(ctx, "operation")
+defer span.End()
+
+// RECOMMENDED (for most application code)
+ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+defer logger.End()
+```
 
 ## Usage
 

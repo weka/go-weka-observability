@@ -30,12 +30,12 @@
 //
 // Combined logging and tracing:
 //
-//	// GetLogSpan creates a span and returns a logger automatically enriched with trace IDs
-//	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
-//	defer end()
+//	// CreateSpan creates a span and returns a logger automatically enriched with trace IDs
+//	ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "user_id", 123)
+//	defer spanLogger.End()
 //
-//	spanLogger.Info("Processing request", "user_id", 123)
-//	// Logs include trace_id and span_id automatically
+//	spanLogger.Info("Processing request")
+//	// Logs include trace_id, span_id, and all key-value pairs automatically
 //
 // # Environment Variables
 //
@@ -259,7 +259,7 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 // from the provider.
 //
 //	SetupOTelSDKWithOptions() → otel.SetTracerProvider(provider)
-//	CreateSpan(ctx, "op") → getTracer(ctx) → otel.GetTracerProvider().Tracer(...)
+//	CreateSpan(ctx, "op") → GetTracer(ctx) → otel.GetTracerProvider().Tracer(...)
 //
 // The tracer resolution uses smart caching with provider change detection, so it's both
 // performant (cached reads) and test-friendly (detects provider swaps automatically).
@@ -335,7 +335,7 @@ func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion st
 // This is extracted to be reused by both SetupOTelSDK and SetupOTelSDKWithOptions.
 func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig) (shutdown func(context.Context) error, err error) {
 	// Initialize tracer cache (triggers getTracer on first use)
-	// The public Tracer variable is kept in sync automatically by getTracer()
+	// The public Tracer variable is kept in sync automatically by GetTracer()
 	// for backward compatibility
 
 	if config.Endpoint == "" {

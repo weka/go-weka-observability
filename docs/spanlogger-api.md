@@ -259,6 +259,294 @@ func outerOperation(ctx context.Context) error {
 }
 ```
 
+## Type-Safe API with Span Options (Recommended)
+
+### Overview
+
+The library provides a **type-safe API** with zero `any` usage for span configuration. This API supports all OpenTelemetry span options while maintaining SpanLogger integration.
+
+**Key Benefits:**
+- ✅ **Type-safe**: No `any` type - uses `trace.SpanStartOption` from OpenTelemetry
+- ✅ **Idiomatic Go**: Variadic functional options pattern (same as gRPC, OTel)
+- ✅ **Unified Attributes**: Use `WithValues()` to add attributes to both logger AND span
+- ✅ **Future-proof**: Automatically supports all current and future OpenTelemetry span options
+- ✅ **Maintains SpanLogger**: All functions return `*SpanLogger` with unified logging+tracing
+
+> **💡 RECOMMENDED PATTERN**: Use `WithValues()` to add attributes to both logger and span simultaneously. This ensures consistency between your logs and traces. Reserve `trace.WithAttributes()` only for span-specific metadata that shouldn't appear in logs (e.g., sampler configuration attributes).
+
+### API Functions
+
+#### `CreateSpanWithOptions` - Type-Safe Child Span
+
+```go
+func CreateSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
+```
+
+Creates a child span with OpenTelemetry span options. Use this when you need to configure span kind, links, timestamps, or other span-specific options.
+
+**Example - Recommended Pattern (WithValues for unified attributes):**
+```go
+import (
+    "go.opentelemetry.io/otel/trace"
+)
+
+func handleRequest(ctx context.Context, r *http.Request) error {
+    // Create span with only span-specific options (kind, links, etc.)
+    ctx, logger := instrumentation.CreateSpanWithOptions(ctx, "http.request",
+        trace.WithSpanKind(trace.SpanKindServer),
+    )
+
+    // Add attributes to BOTH logger and span using WithValues
+    ctx, logger = logger.WithValues(
+        "http.method", r.Method,
+        "http.url", r.URL.Path,
+        "http.status_code", 200,
+    )
+    defer logger.End()  // Defer AFTER enrichment for complete attribute logging
+
+    logger.Info("Handling request") // These attributes appear in logs AND span
+    return processRequest(ctx, r)
+}
+```
+
+**Example - Alternative Pattern (trace.WithAttributes for span-only attributes):**
+```go
+import (
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/trace"
+)
+
+// Use this pattern ONLY when you need span-specific attributes not in logs
+func queryDatabase(ctx context.Context, query string) error {
+    ctx, logger := instrumentation.CreateSpanWithOptions(ctx, "db.query",
+        trace.WithSpanKind(trace.SpanKindClient),
+        // These attributes are for sampling/tracing infrastructure only
+        trace.WithAttributes(
+            attribute.String("db.system", "postgresql"),
+        ),
+    )
+    defer logger.End()
+
+    // Add query details to both logger and span
+    ctx, logger = logger.WithValues("db.statement", query)
+
+    logger.Debug("Executing query") // Query appears in both logs and span
+    return db.Exec(query)
+}
+```
+
+#### `CreateRootSpanWithOptions` - Type-Safe Root Span
+
+```go
+func CreateRootSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
+```
+
+Creates a root span with OpenTelemetry span options. The span starts a new trace (independent trace ID).
+
+**Example - Background Job:**
+```go
+func backgroundJob(ctx context.Context, jobID string, jobType string) error {
+    // Create root span with span kind
+    ctx, logger := instrumentation.CreateRootSpanWithOptions(ctx, "background.job",
+        trace.WithSpanKind(trace.SpanKindInternal),
+    )
+    defer logger.End()
+
+    // Add job metadata to both logger and span
+    ctx, logger = logger.WithValues(
+        "job_id", jobID,
+        "job_type", jobType,
+    )
+
+    logger.Info("Job started") // Job metadata appears in logs and span
+    return processJob(ctx, jobID)
+}
+```
+
+### Convenience Functions (Recommended for Common Cases)
+
+Pre-configured functions for common span kinds. These are thin wrappers around `CreateSpanWithOptions` that automatically set the correct `trace.WithSpanKind()`.
+
+#### `CreateServerSpan` - HTTP/gRPC Servers
+
+```go
+func CreateServerSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
+```
+
+For handling incoming requests. Automatically sets `SpanKindServer`.
+
+**Example:**
+```go
+func handleHTTPRequest(ctx context.Context, r *http.Request) error {
+    // Create server span (SpanKindServer is automatic)
+    ctx, logger := instrumentation.CreateServerSpan(ctx, "http."+r.Method)
+    defer logger.End()
+
+    // Add HTTP metadata to both logger and span
+    ctx, logger = logger.WithValues(
+        "http.url", r.URL.Path,
+        "http.method", r.Method,
+    )
+
+    logger.Info("Processing request") // HTTP metadata in logs and span
+    return handleRequest(ctx, r)
+}
+```
+
+#### `CreateClientSpan` - HTTP/gRPC Clients
+
+```go
+func CreateClientSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
+```
+
+For making outgoing requests. Automatically sets `SpanKindClient`.
+
+**Example:**
+```go
+func callExternalAPI(ctx context.Context, url string) (*Response, error) {
+    // Create client span (SpanKindClient is automatic)
+    ctx, logger := instrumentation.CreateClientSpan(ctx, "http.GET")
+    defer logger.End()
+
+    // Add HTTP metadata to both logger and span
+    ctx, logger = logger.WithValues(
+        "http.url", url,
+        "http.method", "GET",
+    )
+
+    logger.Debug("Calling external API") // HTTP metadata in logs and span
+    resp, err := http.Get(url)
+    if err != nil {
+        logger.SetError(err, "API call failed")
+        return nil, err
+    }
+    return resp, nil
+}
+```
+
+#### `CreateProducerSpan` - Message Publishers
+
+```go
+func CreateProducerSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
+```
+
+For publishing messages to queues. Automatically sets `SpanKindProducer`.
+
+**Example:**
+```go
+func publishMessage(ctx context.Context, topic string, msg []byte) error {
+    // Create producer span (SpanKindProducer is automatic)
+    ctx, logger := instrumentation.CreateProducerSpan(ctx, "kafka.publish")
+    defer logger.End()
+
+    // Add messaging metadata to both logger and span
+    ctx, logger = logger.WithValues(
+        "messaging.system", "kafka",
+        "messaging.destination", topic,
+        "messaging.message_size", len(msg),
+    )
+
+    logger.Info("Publishing message") // Messaging metadata in logs and span
+    return producer.Send(ctx, msg)
+}
+```
+
+#### `CreateConsumerSpan` - Message Consumers
+
+```go
+func CreateConsumerSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
+```
+
+For consuming messages from queues. Automatically sets `SpanKindConsumer`.
+
+**Example:**
+```go
+func processMessage(ctx context.Context, msg *kafka.Message) error {
+    // Create consumer span (SpanKindConsumer is automatic)
+    ctx, logger := instrumentation.CreateConsumerSpan(ctx, "kafka.process")
+    defer logger.End()
+
+    // Add messaging metadata to both logger and span
+    ctx, logger = logger.WithValues(
+        "messaging.system", "kafka",
+        "messaging.source", msg.Topic,
+        "messaging.offset", msg.Offset,
+    )
+
+    logger.Info("Processing message") // Messaging metadata in logs and span
+    return handleMessage(ctx, msg)
+}
+```
+
+### Advanced: Direct Tracer Access with GetTracer
+
+```go
+func GetTracer(ctx context.Context) trace.Tracer
+```
+
+For advanced scenarios where you need direct OpenTelemetry tracer access. **Use sparingly** - you lose SpanLogger integration.
+
+**When to use:**
+- Performance-critical zero-allocation paths
+- Integration with third-party libraries expecting `trace.Tracer`
+- Custom span lifecycle management not supported by SpanLogger
+
+**Example:**
+```go
+func customSpanCreation(ctx context.Context) {
+    tracer := instrumentation.GetTracer(ctx)
+    ctx, span := tracer.Start(ctx, "custom-operation",
+        trace.WithSpanKind(trace.SpanKindInternal),
+        trace.WithAttributes(attribute.String("custom", "attribute")),
+    )
+    defer span.End()
+
+    // Can still get SpanLoggerView for logging
+    view := instrumentation.CurrentSpanLogger(ctx)
+    view.Info("Custom operation")
+}
+```
+
+### Progressive Attribute Enrichment
+
+SpanLogger supports progressive attribute enrichment - you can add attributes at different stages of request processing:
+
+```go
+func processRequest(ctx context.Context, requestID string, userID int) error {
+    // Create span
+    ctx, logger := instrumentation.CreateServerSpan(ctx, "process.request")
+    defer logger.End()
+
+    // Add initial request attributes to both logger and span
+    ctx, logger = logger.WithValues(
+        "request_id", requestID,
+        "user_id", userID,
+    )
+
+    // Add runtime-discovered attributes later in execution
+    sessionID := getSessionID(ctx)
+    ctx, logger = logger.WithValues("session_id", sessionID)
+
+    logger.Info("Processing request") // All attributes in logs and span
+    return processData(ctx)
+}
+```
+
+### Decision Tree: Which Function to Use?
+
+```
+Need to create a span with specific configuration?
+├─ Handling incoming HTTP/gRPC request? → CreateServerSpan
+├─ Making outgoing HTTP/gRPC call? → CreateClientSpan
+├─ Publishing message to queue? → CreateProducerSpan
+├─ Consuming message from queue? → CreateConsumerSpan
+├─ Need custom span options (links, timestamp)? → CreateSpanWithOptions
+├─ Independent trace (background job)? → CreateRootSpanWithOptions
+├─ Simple logging under current span? → CurrentSpanLogger
+├─ Need raw tracer (advanced use)? → GetTracer
+└─ Simple child span with key-values? → CreateSpan (legacy, still works)
+```
+
 ## Migration from GetLogSpan
 
 ### Case 1: Creating New Span (Most Common)

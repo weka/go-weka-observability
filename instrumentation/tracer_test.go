@@ -96,7 +96,7 @@ func TestProviderSwapPattern(t *testing.T) {
 	ctx, recorder := instrumentation.SetupOTELTester(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
-	// getTracer() resolves from context
+	// GetTracer() resolves from context
 	_, spanLogger := instrumentation.CreateSpan(ctx, "test-operation")
 	spanLogger.Info("Test message")
 	spanLogger.End()
@@ -349,7 +349,7 @@ func ExampleSetupOTELTesterWithProvider() {
 	ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
-	// Create spans - getTracer() detects provider swap automatically
+	// Create spans - GetTracer() detects provider swap automatically
 	_, logger := instrumentation.CreateSpan(ctx, "sequential-test-operation")
 	logger.Info("Testing sequentially")
 	logger.End()

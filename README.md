@@ -36,17 +36,34 @@ defer end()
 
 // NEW - Choose based on your use case:
 
-// 1. Creating owned spans (most common)
-ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+// 1. Creating owned spans with key-value pairs (most common)
+ctx, logger := instrumentation.CreateSpan(ctx, "operation", "key", "value")
 defer logger.End()
 
-// 2. Logging under current span (helper functions)
+// 2. Type-safe span creation with OpenTelemetry options (RECOMMENDED: use WithValues for attributes)
+ctx, logger := instrumentation.CreateSpanWithOptions(ctx, "database-query",
+    trace.WithSpanKind(trace.SpanKindClient),
+)
+// Add attributes to BOTH logger and span
+ctx, logger = logger.WithValues(
+    "db.system", "postgresql",
+    "db.statement", "SELECT * FROM users",
+)
+defer logger.End()  // Recommended: defer after enrichment
+
+// 3. Convenience functions for common span kinds (RECOMMENDED: use WithValues for attributes)
+ctx, logger := instrumentation.CreateClientSpan(ctx, "http-request")
+// Add attributes to BOTH logger and span
+ctx, logger = logger.WithValues("http.url", "https://api.example.com")
+defer logger.End()  // Recommended: defer after enrichment
+
+// 4. Logging under current span (helper functions)
 view := instrumentation.CurrentSpanLogger(ctx)
 view.Info("Helper logging")
 // No End() call - compile-time safety!
 
-// 3. Independent traces (background jobs)
-ctx, logger := instrumentation.CreateRootSpan(ctx, "background-job")
+// 5. Independent traces (background jobs)
+ctx, logger := instrumentation.CreateRootSpan(ctx, "background-job", "job_id", "123")
 defer logger.End()
 ```
 
@@ -128,23 +145,57 @@ defer shutdownFn(ctx)
 ctx = logger.ContextWithLogr(ctx, logr)
 
 // Create traced operations with automatic logging
-// Three API functions for different span ownership patterns:
+// Multiple API functions for different span ownership patterns:
 
-// 1. CreateSpan - Create a new child span (you own it, must call End)
+// 1. CreateSpan - Create child span with key-value pairs (simple, recommended for most cases)
 ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "key", "value")
 defer spanLogger.End() // Required!
 
 spanLogger.Info("Operation in progress")
 
-// 2. CurrentSpanLogger - Borrow current span (no End call, no new span)
+// 2. CreateSpanWithOptions - Type-safe span creation (RECOMMENDED: use WithValues for attributes)
+import "go.opentelemetry.io/otel/trace"
+
+ctx, dbLogger := instrumentation.CreateSpanWithOptions(ctx, "database-query",
+    trace.WithSpanKind(trace.SpanKindClient),
+)
+defer dbLogger.End() // Required!
+
+// Add attributes to BOTH logger and span
+ctx, dbLogger = dbLogger.WithValues(
+    "db.system", "postgresql",
+    "db.name", "users_db",
+)
+
+dbLogger.Info("Executing database query")
+
+// 3. Convenience functions for common span kinds (RECOMMENDED: use WithValues for attributes)
+ctx, httpLogger := instrumentation.CreateClientSpan(ctx, "http-api-call")
+defer httpLogger.End()
+
+// Add attributes to BOTH logger and span
+ctx, httpLogger = httpLogger.WithValues(
+    "http.method", "GET",
+    "http.url", "https://api.example.com/users",
+)
+
+httpLogger.Info("Making HTTP request")
+
+// 4. CurrentSpanLogger - Borrow current span (no End call, no new span)
 view := instrumentation.CurrentSpanLogger(ctx)
 view.Info("Helper function logging") // Cannot call view.End() - compile error!
 
-// 3. CreateRootSpan - Start independent trace (new trace ID)
+// 5. CreateRootSpan - Start independent trace (new trace ID)
 ctx, rootLogger := instrumentation.CreateRootSpan(ctx, "background-job", "job_id", "123")
 defer rootLogger.End() // Required!
 
 rootLogger.Info("Background job with independent trace")
+
+// 6. Advanced: Direct tracer access (for OTel library integration)
+tracer := instrumentation.GetTracer(ctx)
+ctx, span := tracer.Start(ctx, "custom-operation")
+defer span.End()
+// Note: No SpanLogger integration - manual span management
 ```
 
 ## Documentation
@@ -155,6 +206,8 @@ rootLogger.Info("Background job with independent trace")
 
 ### Instrumentation (OpenTelemetry)
 - **[Instrumentation Configuration API](docs/instrumentation-configuration-api.md)** - Complete tracing configuration guide, usage patterns, environment variables, best practices
+- **[SpanLogger API](docs/spanlogger-api.md)** - Complete guide to type-safe span creation with OpenTelemetry options, convenience functions, and SpanLogger integration
+- **[Trace Management](docs/trace-management.md)** - Smart tracer resolution system, provider detection, context-based injection, and testing strategies
 - **[Versioning Strategy](docs/versioning.md)** - Library versioning, OpenTelemetry instrumentation scope, CI/CD release process
 
 ### Examples

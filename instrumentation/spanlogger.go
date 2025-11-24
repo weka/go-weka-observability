@@ -161,6 +161,16 @@ func (sl *SpanLogger) End() {
 
 // WithValues enriches the logger and span with additional key-value pairs.
 // Returns updated context and new SpanLogger.
+//
+// The returned SpanLogger shares the same span and shutdown function as the original,
+// so calling End() on either logger will close the span correctly. However, for code
+// clarity, it's recommended to defer End() AFTER calling WithValues():
+//
+//	ctx, logger := instrumentation.CreateServerSpan(ctx, "operation")
+//	ctx, logger = logger.WithValues("key", "value")  // Enrichment
+//	defer logger.End()  // Recommended: defer on enriched logger
+//
+// Both patterns are functionally equivalent because the shutdown function is shared.
 func (sl *SpanLogger) WithValues(keysAndValues ...any) (context.Context, *SpanLogger) {
 	enrichedLogger := sl.Logger.WithValues(keysAndValues...)
 	sl.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
@@ -173,7 +183,7 @@ func (sl *SpanLogger) WithValues(keysAndValues ...any) (context.Context, *SpanLo
 			Logger: enrichedLogger,
 			Span:   sl.Span,
 		},
-		shutdown: sl.shutdown,
+		shutdown: sl.shutdown,  // Same shutdown function - both loggers share it
 	}
 }
 
@@ -339,4 +349,246 @@ func CreateRootSpan(ctx context.Context, name string, keysAndValues ...any) (con
 		},
 		shutdown: shutdownFunc,
 	}
+}
+
+// CreateSpanWithOptions creates a new child span with OpenTelemetry span options.
+//
+// This is the type-safe API with zero usage of any type for span configuration.
+// You MUST call defer logger.End() to properly close the span.
+//
+// RECOMMENDED: Use logger.WithValues() to add attributes to BOTH logger and span.
+// This ensures consistency between logs and traces. Reserve trace.WithAttributes()
+// for span-specific metadata that shouldn't appear in logs (e.g., sampler config).
+//
+// The new span will be a child of any existing span in the context, maintaining
+// the parent-child trace relationship.
+//
+// Parameters:
+//   - name: Operation name for the span (cannot be empty)
+//   - opts: OpenTelemetry span options (WithSpanKind, WithLinks, WithTimestamp, etc.)
+//
+// Returns:
+//   - context.Context: Updated context with new span and logger
+//   - *SpanLogger: Logger with span that MUST be ended
+//
+// Example - Recommended pattern with WithValues:
+//
+//	ctx, logger := instrumentation.CreateSpanWithOptions(ctx, "http.request",
+//	    trace.WithSpanKind(trace.SpanKindServer),
+//	)
+//	defer logger.End()
+//	// Add attributes to BOTH logger and span
+//	ctx, logger = logger.WithValues(
+//	    "http.method", r.Method,
+//	    "http.url", r.URL.Path,
+//	)
+//
+// Example - With links and timestamp:
+//
+//	ctx, logger := instrumentation.CreateSpanWithOptions(ctx, "batch.process",
+//	    trace.WithLinks(trace.Link{SpanContext: parentSpanCtx}),
+//	    trace.WithTimestamp(eventTime),
+//	)
+//	defer logger.End()
+//	ctx, logger = logger.WithValues("batch_size", 1000)
+func CreateSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+	logger := getOrCreateLogger(ctx)
+	logger = enrichLogger(logger, name, nil)
+	ctx = zerologger.ContextWithLogr(ctx, logger)
+
+	// Create child span with user-provided options
+	tracer := GetTracer(ctx)
+	ctx, span := tracer.Start(ctx, name, opts...)
+
+	logger = addTraceIDsIfValid(logger, span)
+	shutdownFunc := createSpanShutdownFunc(span, logger, name)
+	logOperationStart(logger, name)
+
+	return ctx, &SpanLogger{
+		spanLoggerBase: &spanLoggerBase{
+			ctx:    ctx,
+			Logger: logger,
+			Span:   span,
+		},
+		shutdown: shutdownFunc,
+	}
+}
+
+// CreateRootSpanWithOptions creates a new root span with OpenTelemetry span options.
+//
+// This is the type-safe API with zero usage of any type for span configuration.
+// You MUST call defer logger.End() to properly close the span.
+//
+// Unlike CreateSpanWithOptions, this starts a completely new trace with its own trace ID,
+// independent of any existing span in the context. The trace.WithNewRoot() option is
+// automatically prepended to your options.
+//
+// RECOMMENDED: Use logger.WithValues() to add attributes to BOTH logger and span.
+//
+// Parameters:
+//   - name: Operation name for the span (cannot be empty)
+//   - opts: OpenTelemetry span options (WithSpanKind, WithLinks, WithTimestamp, etc.)
+//
+// Returns:
+//   - context.Context: Updated context with new root span and logger
+//   - *SpanLogger: Logger with span that MUST be ended
+//
+// Example - Background job with independent trace:
+//
+//	ctx, logger := instrumentation.CreateRootSpanWithOptions(ctx, "background.job",
+//	    trace.WithSpanKind(trace.SpanKindInternal),
+//	)
+//	defer logger.End()
+//	ctx, logger = logger.WithValues("job_id", jobID, "job_type", "cleanup")
+func CreateRootSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+	logger := getOrCreateLogger(ctx)
+	logger = enrichLogger(logger, name, nil)
+	ctx = zerologger.ContextWithLogr(ctx, logger)
+
+	// Create root span with trace.WithNewRoot() prepended
+	tracer := GetTracer(ctx)
+	allOpts := append([]trace.SpanStartOption{trace.WithNewRoot()}, opts...)
+	ctx, span := tracer.Start(ctx, name, allOpts...)
+
+	logger = addTraceIDsIfValid(logger, span)
+	shutdownFunc := createSpanShutdownFunc(span, logger, name)
+	logOperationStart(logger, name)
+
+	return ctx, &SpanLogger{
+		spanLoggerBase: &spanLoggerBase{
+			ctx:    ctx,
+			Logger: logger,
+			Span:   span,
+		},
+		shutdown: shutdownFunc,
+	}
+}
+
+// CreateServerSpan creates a span with SpanKindServer for handling incoming requests.
+//
+// This is a convenience function equivalent to CreateSpanWithOptions with
+// trace.WithSpanKind(trace.SpanKindServer).
+//
+// You MUST call defer logger.End() to properly close the span.
+//
+// Use this for HTTP/gRPC server handlers, websocket servers, or any code
+// that processes incoming requests from external clients.
+//
+// RECOMMENDED: Use logger.WithValues() to add attributes to BOTH logger and span.
+//
+// Parameters:
+//   - name: Operation name for the span (cannot be empty)
+//   - opts: Additional OpenTelemetry span options (WithLinks, WithTimestamp, etc.)
+//
+// Returns:
+//   - context.Context: Updated context with new span and logger
+//   - *SpanLogger: Logger with span that MUST be ended
+//
+// Example:
+//
+//	ctx, logger := instrumentation.CreateServerSpan(ctx, "http.GET")
+//	defer logger.End()
+//	ctx, logger = logger.WithValues(
+//	    "http.url", r.URL.Path,
+//	    "http.method", r.Method,
+//	)
+func CreateServerSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+	allOpts := append([]trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}, opts...)
+	return CreateSpanWithOptions(ctx, name, allOpts...)
+}
+
+// CreateClientSpan creates a span with SpanKindClient for outgoing requests.
+//
+// This is a convenience function equivalent to CreateSpanWithOptions with
+// trace.WithSpanKind(trace.SpanKindClient).
+//
+// You MUST call defer logger.End() to properly close the span.
+//
+// Use this for HTTP/gRPC client calls, database queries, or any code
+// that makes outgoing requests to external services.
+//
+// RECOMMENDED: Use logger.WithValues() to add attributes to BOTH logger and span.
+//
+// Parameters:
+//   - name: Operation name for the span (cannot be empty)
+//   - opts: Additional OpenTelemetry span options (WithLinks, WithTimestamp, etc.)
+//
+// Returns:
+//   - context.Context: Updated context with new span and logger
+//   - *SpanLogger: Logger with span that MUST be ended
+//
+// Example:
+//
+//	ctx, logger := instrumentation.CreateClientSpan(ctx, "http.GET")
+//	defer logger.End()
+//	ctx, logger = logger.WithValues("http.url", url, "http.method", "GET")
+func CreateClientSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+	allOpts := append([]trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindClient)}, opts...)
+	return CreateSpanWithOptions(ctx, name, allOpts...)
+}
+
+// CreateProducerSpan creates a span with SpanKindProducer for publishing messages.
+//
+// This is a convenience function equivalent to CreateSpanWithOptions with
+// trace.WithSpanKind(trace.SpanKindProducer).
+//
+// You MUST call defer logger.End() to properly close the span.
+//
+// Use this for message queue publishers, event emitters, or any code
+// that sends messages to a message broker.
+//
+// RECOMMENDED: Use logger.WithValues() to add attributes to BOTH logger and span.
+//
+// Parameters:
+//   - name: Operation name for the span (cannot be empty)
+//   - opts: Additional OpenTelemetry span options (WithLinks, WithTimestamp, etc.)
+//
+// Returns:
+//   - context.Context: Updated context with new span and logger
+//   - *SpanLogger: Logger with span that MUST be ended
+//
+// Example:
+//
+//	ctx, logger := instrumentation.CreateProducerSpan(ctx, "kafka.publish")
+//	defer logger.End()
+//	ctx, logger = logger.WithValues(
+//	    "messaging.system", "kafka",
+//	    "messaging.destination", topic,
+//	)
+func CreateProducerSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+	allOpts := append([]trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindProducer)}, opts...)
+	return CreateSpanWithOptions(ctx, name, allOpts...)
+}
+
+// CreateConsumerSpan creates a span with SpanKindConsumer for consuming messages.
+//
+// This is a convenience function equivalent to CreateSpanWithOptions with
+// trace.WithSpanKind(trace.SpanKindConsumer).
+//
+// You MUST call defer logger.End() to properly close the span.
+//
+// Use this for message queue consumers, event handlers, or any code
+// that receives messages from a message broker.
+//
+// RECOMMENDED: Use logger.WithValues() to add attributes to BOTH logger and span.
+//
+// Parameters:
+//   - name: Operation name for the span (cannot be empty)
+//   - opts: Additional OpenTelemetry span options (WithLinks, WithTimestamp, etc.)
+//
+// Returns:
+//   - context.Context: Updated context with new span and logger
+//   - *SpanLogger: Logger with span that MUST be ended
+//
+// Example:
+//
+//	ctx, logger := instrumentation.CreateConsumerSpan(ctx, "kafka.process")
+//	defer logger.End()
+//	ctx, logger = logger.WithValues(
+//	    "messaging.system", "kafka",
+//	    "messaging.source", topic,
+//	)
+func CreateConsumerSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+	allOpts := append([]trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindConsumer)}, opts...)
+	return CreateSpanWithOptions(ctx, name, allOpts...)
 }

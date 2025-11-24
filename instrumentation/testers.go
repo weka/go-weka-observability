@@ -32,7 +32,7 @@ import (
 //
 // # How It Works
 //
-// When you call CreateSpan() or CreateRootSpan(), getTracer(ctx) checks:
+// When you call CreateSpan() or CreateRootSpan(), GetTracer(ctx) checks:
 //
 //  1. Context for custom tracer (this function) ← Takes priority
 //  2. Cached tracer from provider (normal path)
@@ -65,7 +65,7 @@ import (
 //
 // For simpler tests, you can swap the provider instead:
 //
-//	otel.SetTracerProvider(testProvider)  // getTracer() detects automatically
+//	otel.SetTracerProvider(testProvider)  // GetTracer() detects automatically
 //	ctx, logger := instrumentation.CreateSpan(ctx, "operation")
 //
 // Both patterns work - use ContextWithTracer for parallel test isolation,
