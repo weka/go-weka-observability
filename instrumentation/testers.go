@@ -32,7 +32,7 @@ import (
 //
 // # How It Works
 //
-// When you call CreateSpan() or CreateRootSpan(), GetTracer(ctx) checks:
+// When you call CreateLogSpan() or CreateRootLogSpan(), GetTracer(ctx) checks:
 //
 //  1. Context for custom tracer (this function) ← Takes priority
 //  2. Cached tracer from provider (normal path)
@@ -53,7 +53,7 @@ import (
 //	    ctx := instrumentation.ContextWithTracer(context.Background(), tracer)
 //
 //	    // All CreateSpan/CreateRootSpan calls use injected tracer
-//	    ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+//	    ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 //	    defer logger.End()
 //
 //	    // Verify spans were recorded
@@ -66,7 +66,7 @@ import (
 // For simpler tests, you can swap the provider instead:
 //
 //	otel.SetTracerProvider(testProvider)  // GetTracer() detects automatically
-//	ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+//	ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 //
 // Both patterns work - use ContextWithTracer for parallel test isolation,
 // use provider swap for simpler sequential tests.
@@ -95,7 +95,7 @@ func ContextWithTracer(ctx context.Context, tracer trace.Tracer) context.Context
 //	    defer recorder.Shutdown(context.Background())
 //
 //	    // Your test code using CreateSpan, CreateRootSpan, etc.
-//	    ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+//	    ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 //	    defer logger.End()
 //
 //	    // Assertions

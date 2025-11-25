@@ -59,7 +59,7 @@ func init() {
 type ContextValuesKey struct{}
 
 // createChildSpan creates a new child span and enriches context with attributes.
-// This is the core span creation logic used by CreateSpan.
+// This is the core span creation logic used by CreateLogSpan.
 //
 // It merges keysAndValues with any previously stored context values (via ContextValuesKey),
 // converts them to OpenTelemetry attributes, and stores the merged values back in context
@@ -94,7 +94,7 @@ func createChildSpan(ctx context.Context, name string, keysAndValues []any) (con
 }
 
 // createRootSpanInternal creates a new root span, breaking the parent chain.
-// This is the core root span creation logic used by CreateRootSpan.
+// This is the core root span creation logic used by CreateRootLogSpan.
 //
 // Unlike createChildSpan, this does NOT merge with previous context values,
 // as root spans are intentionally independent with fresh context.

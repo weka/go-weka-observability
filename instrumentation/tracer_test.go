@@ -25,7 +25,7 @@ func TestGetTracerProviderDetection(t *testing.T) {
 	otel.SetTracerProvider(tp1)
 
 	// First call - should create a span using tp1
-	ctx1, span1Logger := instrumentation.CreateSpan(ctx, "test-op-1")
+	ctx1, span1Logger := instrumentation.CreateLogSpan(ctx, "test-op-1")
 	span1Logger.End()
 
 	spans1 := recorder1.Ended()
@@ -38,7 +38,7 @@ func TestGetTracerProviderDetection(t *testing.T) {
 	otel.SetTracerProvider(tp2)
 
 	// Second call after provider swap - should detect change and use tp2
-	ctx2, span2Logger := instrumentation.CreateSpan(ctx, "test-op-2")
+	ctx2, span2Logger := instrumentation.CreateLogSpan(ctx, "test-op-2")
 	span2Logger.End()
 
 	// Verify new span went to new recorder
@@ -73,7 +73,7 @@ func TestContextOverride(t *testing.T) {
 	ctx = instrumentation.ContextWithTracer(ctx, customTracer)
 
 	// Create span - should use custom tracer
-	ctx, spanLogger := instrumentation.CreateSpan(ctx, "custom-operation")
+	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "custom-operation")
 	spanLogger.End()
 
 	// Verify span went to custom recorder, not global
@@ -97,7 +97,7 @@ func TestProviderSwapPattern(t *testing.T) {
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// GetTracer() resolves from context
-	_, spanLogger := instrumentation.CreateSpan(ctx, "test-operation")
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "test-operation")
 	spanLogger.Info("Test message")
 	spanLogger.End()
 
@@ -123,7 +123,7 @@ func TestConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			_, spanLogger := instrumentation.CreateSpan(ctx, "concurrent-op")
+			_, spanLogger := instrumentation.CreateLogSpan(ctx, "concurrent-op")
 			spanLogger.End()
 		}(i)
 	}
@@ -154,7 +154,7 @@ func TestContextOverrideWithRootSpan(t *testing.T) {
 	ctx = instrumentation.ContextWithTracer(ctx, customTracer)
 
 	// Create root span
-	ctx, rootLogger := instrumentation.CreateRootSpan(ctx, "root-operation", "job_id", "123")
+	ctx, rootLogger := instrumentation.CreateRootLogSpan(ctx, "root-operation", "job_id", "123")
 	rootLogger.End()
 
 	// Verify span went to custom recorder
@@ -179,7 +179,7 @@ func TestParallelTestsWithContextOverride(t *testing.T) {
 		defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 		// Create span
-		_, spanLogger := instrumentation.CreateSpan(ctx, testName)
+		_, spanLogger := instrumentation.CreateLogSpan(ctx, testName)
 		spanLogger.End()
 
 		// Verify
@@ -203,14 +203,14 @@ func TestCacheHitPerformance(t *testing.T) {
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// First call - cache miss
-	_, span1 := instrumentation.CreateSpan(ctx, "op-1")
+	_, span1 := instrumentation.CreateLogSpan(ctx, "op-1")
 	span1.End()
 
 	// Subsequent calls - cache hit (same provider)
-	_, span2 := instrumentation.CreateSpan(ctx, "op-2")
+	_, span2 := instrumentation.CreateLogSpan(ctx, "op-2")
 	span2.End()
 
-	_, span3 := instrumentation.CreateSpan(ctx, "op-3")
+	_, span3 := instrumentation.CreateLogSpan(ctx, "op-3")
 	span3.End()
 
 	// All spans should be created successfully
@@ -228,7 +228,7 @@ func TestProviderSwapInMiddleOfOperations(t *testing.T) {
 	tp1 := trace.NewTracerProvider(trace.WithSpanProcessor(recorder1))
 	otel.SetTracerProvider(tp1)
 
-	ctx, span1 := instrumentation.CreateSpan(ctx, "before-swap")
+	ctx, span1 := instrumentation.CreateLogSpan(ctx, "before-swap")
 	span1.End()
 
 	// Swap provider mid-operation
@@ -237,7 +237,7 @@ func TestProviderSwapInMiddleOfOperations(t *testing.T) {
 	otel.SetTracerProvider(tp2)
 
 	// Create another span - should use new provider
-	ctx, span2 := instrumentation.CreateSpan(ctx, "after-swap")
+	ctx, span2 := instrumentation.CreateLogSpan(ctx, "after-swap")
 	span2.End()
 
 	// Verify spans went to correct recorders
@@ -258,7 +258,7 @@ func TestSetupOTELTester(t *testing.T) {
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Create span using helper context
-	_, spanLogger := instrumentation.CreateSpan(ctx, "test-operation")
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "test-operation")
 	spanLogger.End()
 
 	// Verify span was recorded
@@ -283,7 +283,7 @@ func TestSetupOTELTesterParallelSafety(t *testing.T) {
 			defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 			// Each test has its own isolated recorder
-			_, spanLogger := instrumentation.CreateSpan(ctx, fmt.Sprintf("op-%d", i))
+			_, spanLogger := instrumentation.CreateLogSpan(ctx, fmt.Sprintf("op-%d", i))
 			spanLogger.End()
 
 			spans := recorder.Ended()
@@ -302,7 +302,7 @@ func TestSetupOTELTesterWithProvider(t *testing.T) {
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Verify provider was swapped
-	_, spanLogger := instrumentation.CreateSpan(ctx, "test-operation")
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "test-operation")
 	spanLogger.End()
 
 	spans := recorder.Ended()
@@ -325,7 +325,7 @@ func ExampleSetupOTELTester() {
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Create spans using context-injected tracer
-	_, logger := instrumentation.CreateSpan(ctx, "parallel-test-operation")
+	_, logger := instrumentation.CreateLogSpan(ctx, "parallel-test-operation")
 	logger.Info("Testing in parallel")
 	logger.End()
 
@@ -350,7 +350,7 @@ func ExampleSetupOTELTesterWithProvider() {
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Create spans - GetTracer() detects provider swap automatically
-	_, logger := instrumentation.CreateSpan(ctx, "sequential-test-operation")
+	_, logger := instrumentation.CreateLogSpan(ctx, "sequential-test-operation")
 	logger.Info("Testing sequentially")
 	logger.End()
 
@@ -379,7 +379,7 @@ func ExampleContextWithTracer() {
 	ctx = instrumentation.ContextWithTracer(ctx, customTracer)
 
 	// Create spans using custom tracer
-	_, logger := instrumentation.CreateSpan(ctx, "custom-tracer-operation")
+	_, logger := instrumentation.CreateLogSpan(ctx, "custom-tracer-operation")
 	logger.Info("Using custom tracer")
 	logger.End()
 

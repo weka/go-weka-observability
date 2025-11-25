@@ -10,7 +10,7 @@ The `instrumentation` package provides OpenTelemetry-based distributed tracing w
 - Automatic trace context propagation
 - Integration with logr.Logger for unified observability
 - Production-ready with graceful degradation (no endpoint = no export)
-- Combined logging and tracing via SpanLogger API (`CreateSpan`, `CurrentSpanLogger`, `CreateRootSpan`)
+- Combined logging and tracing via SpanLogger API (`CreateLogSpan`, `CurrentSpanLogger`, `CreateRootLogSpan`)
 
 **📖 See Also:**
 - **[SpanLogger API Documentation](spanlogger-api.md)** - Complete guide to span creation and lifecycle management
@@ -48,7 +48,7 @@ func main() {
     defer shutdown(ctx)
 
     // Create a traced operation with automatic logging
-    ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation", "user", "alice")
+    ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation", "user", "alice")
     defer spanLogger.End() // Required!
 
     spanLogger.Info("Operation started")
@@ -60,7 +60,7 @@ func main() {
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
 
-**📖 For more span API patterns:** See [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootSpan` usage.
+**📖 For more span API patterns:** See [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootLogSpan` usage.
 
 ### With Fallback Endpoint (Env Always Takes Precedence)
 
@@ -322,9 +322,9 @@ shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1", l
 
 The SpanLogger API provides three functions for different span ownership patterns:
 
-**1. CreateSpan - Create Owned Spans (Most Common)**
+**1. CreateLogSpan - Create Owned Spans (Most Common)**
 ```go
-ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "user_id", 123)
+ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation-name", "user_id", 123)
 defer spanLogger.End() // Required!
 
 spanLogger.Info("Processing request")
@@ -339,9 +339,9 @@ view.Info("Helper function working")
 // No End() call - compile-time safety!
 ```
 
-**3. CreateRootSpan - Independent Traces (Background Jobs)**
+**3. CreateRootLogSpan - Independent Traces (Background Jobs)**
 ```go
-ctx, spanLogger := instrumentation.CreateRootSpan(ctx, "background-job", "job_id", "abc")
+ctx, spanLogger := instrumentation.CreateRootLogSpan(ctx, "background-job", "job_id", "abc")
 defer spanLogger.End() // Required!
 
 spanLogger.Info("Background job with new trace ID")
@@ -355,7 +355,7 @@ logr := logger.CreateLogger(logger.WithInfoLevel())
 ctx = logger.ContextWithLogr(ctx, logr)
 
 // Now span creation functions can retrieve it
-ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation")
+ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation")
 ```
 
 If no logger is in context, a default logger will be created automatically (but you lose control over logger configuration).
@@ -692,7 +692,7 @@ func TestMyFeature(t *testing.T) {
     ctx = logger.ContextWithLogr(ctx, logr)
 
     // Your test code using CreateSpan, CreateRootSpan, etc.
-    ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation")
+    ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation")
     defer spanLogger.End()
 
     spanLogger.Info("Processing request")
@@ -803,7 +803,7 @@ defer shutdown(ctx)  // ✅ Ensures traces are flushed
 
 ```go
 // ✅ Good - unified logging and tracing with CreateSpan
-ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 defer logger.End()
 logger.Info("Processing")
 
@@ -812,19 +812,19 @@ span := trace.SpanFromContext(ctx)
 logger := logr.FromContext(ctx)
 ```
 
-**📖 See:** [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootSpan` patterns.
+**📖 See:** [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootLogSpan` patterns.
 
 ### 3. Use Descriptive Span Names
 
 ```go
 // ✅ Good - specific operation names
-instrumentation.CreateSpan(ctx, "database.query.users")
-instrumentation.CreateSpan(ctx, "payment.charge")
-instrumentation.CreateSpan(ctx, "email.send")
+instrumentation.CreateLogSpan(ctx, "database.query.users")
+instrumentation.CreateLogSpan(ctx, "payment.charge")
+instrumentation.CreateLogSpan(ctx, "email.send")
 
 // ❌ Bad - generic names
-instrumentation.CreateSpan(ctx, "process")
-instrumentation.CreateSpan(ctx, "handle")
+instrumentation.CreateLogSpan(ctx, "process")
+instrumentation.CreateLogSpan(ctx, "handle")
 ```
 
 ### 4. Add Meaningful Attributes

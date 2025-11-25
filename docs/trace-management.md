@@ -18,7 +18,7 @@
 
 ### Core Types
 
-- **`GetTracer(ctx)`** - Public API for smart tracer resolution that orchestrates the three-tier lookup strategy. Used internally by all span creation functions (`CreateSpan`, `CreateRootSpan`, `CreateSpanWithOptions`, etc.). Can be called directly for advanced use cases requiring raw tracer access.
+- **`GetTracer(ctx)`** - Public API for smart tracer resolution that orchestrates the three-tier lookup strategy. Used internally by all span creation functions (`CreateLogSpan`, `CreateRootLogSpan`, `CreateSpanWithOptions`, etc.). Can be called directly for advanced use cases requiring raw tracer access.
 
 - **`ContextWithTracer(ctx, tracer)`** - Public API for context-based tracer injection. Primary use case: parallel test isolation. Stores tracer in context using unexported `tracerKey{}` type.
 
@@ -69,7 +69,7 @@
 ### Resolution Flow
 
 ```
-CreateSpan(ctx, "operation") called
+CreateLogSpan(ctx, "operation") called
          ↓
     GetTracer(ctx)  ← Public API, can be called directly
          ↓
@@ -134,24 +134,24 @@ if cachedProvider == currentProvider {       // Pointer comparison (fast)
 tp1 := trace.NewTracerProvider(...)
 otel.SetTracerProvider(tp1)
 
-_, span1 := instrumentation.CreateSpan(ctx, "op1")
+_, span1 := instrumentation.CreateLogSpan(ctx, "op1")
 // → GetTracer() creates tracer, caches (provider=tp1)
 
 // Provider swap (common in tests)
 tp2 := trace.NewTracerProvider(...)
 otel.SetTracerProvider(tp2)
 
-_, span2 := instrumentation.CreateSpan(ctx, "op2")
+_, span2 := instrumentation.CreateLogSpan(ctx, "op2")
 // → GetTracer() detects tp2 != tp1, invalidates cache, creates new tracer
 ```
 
 ### Integration Points
 
 **Consumed by**:
-- `CreateSpan(ctx, name, kv...)` - Creates child spans using resolved tracer
-- `CreateRootSpan(ctx, name, kv...)` - Creates root spans using resolved tracer
-- `CreateSpanWithOptions(ctx, name, opts...)` - Type-safe child span creation
-- `CreateRootSpanWithOptions(ctx, name, opts...)` - Type-safe root span creation
+- `CreateLogSpan(ctx, name, kv...)` - Creates child spans using resolved tracer
+- `CreateRootLogSpan(ctx, name, kv...)` - Creates root spans using resolved tracer
+- `CreateLogSpanWithOptions(ctx, name, opts...)` - Type-safe child span creation
+- `CreateRootLogSpanWithOptions(ctx, name, opts...)` - Type-safe root span creation
 - `CreateServerSpan`, `CreateClientSpan`, `CreateProducerSpan`, `CreateConsumerSpan` - Convenience functions with pre-configured span kinds
 - `GetSpanForContext()` (deprecated) - Backward compatibility wrapper
 - **Direct usage**: Advanced users can call `GetTracer(ctx)` directly when they need raw tracer access without SpanLogger integration
@@ -170,7 +170,7 @@ _, span2 := instrumentation.CreateSpan(ctx, "op2")
 
 ### Overview
 
-`GetTracer(ctx)` is the public API for accessing the smart tracer resolution system. While most application code should use the high-level SpanLogger API (`CreateSpan`, `CreateSpanWithOptions`, etc.), direct tracer access is available for advanced scenarios.
+`GetTracer(ctx)` is the public API for accessing the smart tracer resolution system. While most application code should use the high-level SpanLogger API (`CreateLogSpan`, `CreateSpanWithOptions`, etc.), direct tracer access is available for advanced scenarios.
 
 ### When to Use GetTracer()
 
@@ -181,7 +181,7 @@ _, span2 := instrumentation.CreateSpan(ctx, "op2")
 - Migrating legacy code that used the deprecated `Tracer` variable
 
 **Don't use GetTracer() for**:
-- Regular application tracing (use `CreateSpan`, `CreateSpanWithOptions`, etc.)
+- Regular application tracing (use `CreateLogSpan`, `CreateSpanWithOptions`, etc.)
 - Any scenario where SpanLogger integration is beneficial (structured logging + tracing)
 - Simple span creation with attributes/span kinds (use convenience functions)
 
@@ -297,15 +297,14 @@ func withRawTracer(ctx context.Context) {
 
 // Using SpanLogger API (recommended for most cases)
 func withSpanLogger(ctx context.Context) {
-    // Create client span
-    ctx, logger := instrumentation.CreateClientSpan(ctx, "database-query")
+    // Create client span with initial attributes
+    ctx, logger := instrumentation.CreateClientLogSpan(ctx, "database-query",
+        "db.system", "postgresql",
+    )
     defer logger.End()
 
-    // Add attributes to BOTH logger and span using WithValues
-    ctx, logger = logger.WithValues(
-        "db.system", "postgresql",
-        "rows", 100,
-    )
+    // Can still add more attributes later using WithValues
+    ctx, logger = logger.WithValues("rows", 100)
 
     // Unified logging with automatic trace correlation
     logger.Info("Querying database")
@@ -326,7 +325,7 @@ ctx, span := tracer.Start(ctx, "operation")
 defer span.End()
 
 // RECOMMENDED (for most application code)
-ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 defer logger.End()
 ```
 
@@ -364,11 +363,11 @@ func main() {
 }
 
 func processRequest(ctx context.Context) {
-    // CreateSpan uses getTracer(ctx) internally
+    // CreateLogSpan uses getTracer(ctx) internally
     // → Checks context (no override)
     // → Checks cache (hit: fast path)
     // → Returns cached tracer
-    ctx, logger := instrumentation.CreateSpan(ctx, "process_request")
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "process_request")
     defer logger.End()
 
     logger.Info("Processing started")
@@ -376,7 +375,7 @@ func processRequest(ctx context.Context) {
 }
 
 func queryDatabase(ctx context.Context) {
-    ctx, logger := instrumentation.CreateSpan(ctx, "query_database")
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "query_database")
     defer logger.End()
 
     logger.Info("Querying database")
@@ -405,9 +404,9 @@ func TestFeatureA(t *testing.T) {
     ctx, recorder := instrumentation.SetupOTELTester(ctx)
     defer recorder.Shutdown(context.Background())
 
-    // All CreateSpan calls use tracer from context
+    // All CreateLogSpan calls use tracer from context
     // getTracer(ctx) → Priority 1: ctx.Value(tracerKey{})
-    ctx, logger := instrumentation.CreateSpan(ctx, "feature_a")
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "feature_a")
     defer logger.End()
 
     logger.Info("Testing feature A")
@@ -425,7 +424,7 @@ func TestFeatureB(t *testing.T) {
     ctx, recorder := instrumentation.SetupOTELTester(ctx)
     defer recorder.Shutdown(context.Background())
 
-    ctx, logger := instrumentation.CreateSpan(ctx, "feature_b")
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "feature_b")
     defer logger.End()
 
     logger.Info("Testing feature B")
@@ -451,7 +450,7 @@ func TestDistributedTracing(t *testing.T) {
     // → cachedProvider != otel.GetTracerProvider()
     // → Creates new tracer from swapped provider
 
-    ctx, logger := instrumentation.CreateSpan(ctx, "distributed_trace")
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "distributed_trace")
     defer logger.End()
 
     // Test propagation via HTTP headers, etc.
@@ -470,8 +469,8 @@ func handleTenantRequest(ctx context.Context, tenantID string) {
     // Inject via context (overrides global provider)
     ctx = instrumentation.ContextWithTracer(ctx, tenantTracer)
 
-    // All CreateSpan calls in this request use tenant tracer
-    ctx, logger := instrumentation.CreateSpan(ctx, "handle_tenant_request")
+    // All CreateLogSpan calls in this request use tenant tracer
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "handle_tenant_request")
     defer logger.End()
 
     logger.Info("Processing tenant request", "tenant_id", tenantID)
@@ -491,7 +490,7 @@ func TestProviderSwapDetection(t *testing.T) {
     tp1 := trace.NewTracerProvider(trace.WithSpanProcessor(recorder1))
     otel.SetTracerProvider(tp1)
 
-    _, span1 := instrumentation.CreateSpan(ctx, "op1")
+    _, span1 := instrumentation.CreateLogSpan(ctx, "op1")
     span1.End()
 
     require.Len(t, recorder1.Ended(), 1)  // Span went to recorder1
@@ -502,7 +501,7 @@ func TestProviderSwapDetection(t *testing.T) {
     otel.SetTracerProvider(tp2)
 
     // getTracer() automatically detects provider change
-    _, span2 := instrumentation.CreateSpan(ctx, "op2")
+    _, span2 := instrumentation.CreateLogSpan(ctx, "op2")
     span2.End()
 
     require.Len(t, recorder2.Ended(), 1)  // Span went to recorder2
@@ -534,7 +533,7 @@ func TestProviderSwapDetection(t *testing.T) {
   - **Coverage**: Context-based injection for parallel test safety
 
 - **`TestConcurrentAccess`** - Race condition detection with -race flag
-  - Spawns 100 goroutines calling `CreateSpan()` concurrently
+  - Spawns 100 goroutines calling `CreateLogSpan()` concurrently
   - Validates all spans created successfully
   - **Coverage**: Thread safety of `getTracer()` double-check locking
 
@@ -583,7 +582,7 @@ getTracer(ctx) performance:
 3. Pointer comparison:         ~5ns      (provider check)
 4. RUnlock:                    ~10-20ns  (unlock)
    ─────────────────────────────────────
-   Total per CreateSpan call:  ~45-75ns
+   Total per CreateLogSpan call:  ~45-75ns
 ```
 
 **Edge case (provider swap in tests)**:
@@ -641,7 +640,7 @@ span.SetAttributes(attribute.String("key", "value"))
 
 **After**:
 ```go
-ctx, logger := instrumentation.CreateSpan(ctx, "operation", "key", "value")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation", "key", "value")
 defer logger.End()
 
 logger.Info("Operation started")  // Automatic trace correlation
@@ -729,7 +728,7 @@ func TestFeature(t *testing.T) {
 
 ## Design Patterns Used
 
-- **Lazy initialization**: Tracer created on first `CreateSpan()` call, not during setup
+- **Lazy initialization**: Tracer created on first `CreateLogSpan()` call, not during setup
 - **Caching with invalidation**: Provider pointer comparison for automatic cache invalidation
 - **Double-check locking**: Thread-safe optimization for read-heavy workloads
 - **Strategy pattern**: Three-tier resolution (context → cache → provider)

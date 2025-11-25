@@ -37,11 +37,11 @@ defer end()
 // NEW - Choose based on your use case:
 
 // 1. Creating owned spans with key-value pairs (most common)
-ctx, logger := instrumentation.CreateSpan(ctx, "operation", "key", "value")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation", "key", "value")
 defer logger.End()
 
 // 2. Type-safe span creation with OpenTelemetry options (RECOMMENDED: use WithValues for attributes)
-ctx, logger := instrumentation.CreateSpanWithOptions(ctx, "database-query",
+ctx, logger := instrumentation.CreateLogSpanWithOptions(ctx, "database-query",
     trace.WithSpanKind(trace.SpanKindClient),
 )
 // Add attributes to BOTH logger and span
@@ -51,10 +51,11 @@ ctx, logger = logger.WithValues(
 )
 defer logger.End()  // Recommended: defer after enrichment
 
-// 3. Convenience functions for common span kinds (RECOMMENDED: use WithValues for attributes)
-ctx, logger := instrumentation.CreateClientSpan(ctx, "http-request")
-// Add attributes to BOTH logger and span
-ctx, logger = logger.WithValues("http.url", "https://api.example.com")
+// 3. Convenience functions for common span kinds (with optional key-value pairs)
+ctx, logger := instrumentation.CreateClientLogSpan(ctx, "http-request",
+    "http.url", "https://api.example.com",
+    "http.method", "GET",
+)
 defer logger.End()  // Recommended: defer after enrichment
 
 // 4. Logging under current span (helper functions)
@@ -63,7 +64,7 @@ view.Info("Helper logging")
 // No End() call - compile-time safety!
 
 // 5. Independent traces (background jobs)
-ctx, logger := instrumentation.CreateRootSpan(ctx, "background-job", "job_id", "123")
+ctx, logger := instrumentation.CreateRootLogSpan(ctx, "background-job", "job_id", "123")
 defer logger.End()
 ```
 
@@ -148,7 +149,7 @@ ctx = logger.ContextWithLogr(ctx, logr)
 // Multiple API functions for different span ownership patterns:
 
 // 1. CreateSpan - Create child span with key-value pairs (simple, recommended for most cases)
-ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "key", "value")
+ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation-name", "key", "value")
 defer spanLogger.End() // Required!
 
 spanLogger.Info("Operation in progress")
@@ -156,7 +157,7 @@ spanLogger.Info("Operation in progress")
 // 2. CreateSpanWithOptions - Type-safe span creation (RECOMMENDED: use WithValues for attributes)
 import "go.opentelemetry.io/otel/trace"
 
-ctx, dbLogger := instrumentation.CreateSpanWithOptions(ctx, "database-query",
+ctx, dbLogger := instrumentation.CreateLogSpanWithOptions(ctx, "database-query",
     trace.WithSpanKind(trace.SpanKindClient),
 )
 defer dbLogger.End() // Required!
@@ -169,15 +170,12 @@ ctx, dbLogger = dbLogger.WithValues(
 
 dbLogger.Info("Executing database query")
 
-// 3. Convenience functions for common span kinds (RECOMMENDED: use WithValues for attributes)
-ctx, httpLogger := instrumentation.CreateClientSpan(ctx, "http-api-call")
-defer httpLogger.End()
-
-// Add attributes to BOTH logger and span
-ctx, httpLogger = httpLogger.WithValues(
+// 3. Convenience functions for common span kinds (with optional key-value pairs)
+ctx, httpLogger := instrumentation.CreateClientLogSpan(ctx, "http-api-call",
     "http.method", "GET",
     "http.url", "https://api.example.com/users",
 )
+defer httpLogger.End()
 
 httpLogger.Info("Making HTTP request")
 
@@ -186,7 +184,7 @@ view := instrumentation.CurrentSpanLogger(ctx)
 view.Info("Helper function logging") // Cannot call view.End() - compile error!
 
 // 5. CreateRootSpan - Start independent trace (new trace ID)
-ctx, rootLogger := instrumentation.CreateRootSpan(ctx, "background-job", "job_id", "123")
+ctx, rootLogger := instrumentation.CreateRootLogSpan(ctx, "background-job", "job_id", "123")
 defer rootLogger.End() // Required!
 
 rootLogger.Info("Background job with independent trace")

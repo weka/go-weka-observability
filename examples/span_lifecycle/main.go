@@ -53,18 +53,18 @@ func main() {
 
 	logr.Info("=== Span Lifecycle Example: Demonstrating All Three API Functions ===")
 
-	// Section 1: CreateSpan() - Creating owned spans
-	demonstrateCreateSpan(ctx)
+	// Section 1: CreateLogSpan() - Creating owned spans
+	demonstrateCreateLogSpan(ctx)
 
 	// Section 2: CurrentSpanLogger() - Borrowing current span
 	demonstrateCurrentSpanLogger(ctx)
 
-	// Section 3: CreateRootSpan() - Breaking parent chain
-	demonstrateCreateRootSpan(ctx)
+	// Section 3: CreateRootLogSpan() - Breaking parent chain
+	demonstrateCreateRootLogSpan(ctx)
 }
 
 // ============================================================================
-// Section 1: CreateSpan() - Creating Owned Spans
+// Section 1: CreateLogSpan() - Creating Owned Spans
 // ============================================================================
 //
 // Use CreateSpan when:
@@ -78,9 +78,9 @@ func main() {
 // - New span becomes child of current span in context
 // - All logs are automatically enriched with trace/span IDs
 
-func demonstrateCreateSpan(ctx context.Context) {
+func demonstrateCreateLogSpan(ctx context.Context) {
 	// Create a parent span for a user request
-	ctx, parentLogger := instrumentation.CreateSpan(ctx, "process_user_request", "user_id", 12345)
+	ctx, parentLogger := instrumentation.CreateLogSpan(ctx, "process_user_request", "user_id", 12345)
 	defer parentLogger.End() // MUST call - you own this span!
 
 	parentLogger.Info("Processing user request started")
@@ -95,7 +95,7 @@ func demonstrateCreateSpan(ctx context.Context) {
 
 func validateUser(ctx context.Context) {
 	// Child span 1: User validation
-	ctx, logger := instrumentation.CreateSpan(ctx, "validate_user")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "validate_user")
 	defer logger.End()
 
 	logger.Info("Validating user credentials")
@@ -105,7 +105,7 @@ func validateUser(ctx context.Context) {
 
 func fetchUserData(ctx context.Context) {
 	// Child span 2: Database query
-	ctx, logger := instrumentation.CreateSpan(ctx, "fetch_user_data", "query", "SELECT * FROM users")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "fetch_user_data", "query", "SELECT * FROM users")
 	defer logger.End()
 
 	logger.Info("Querying database for user data")
@@ -115,13 +115,13 @@ func fetchUserData(ctx context.Context) {
 
 func processUserData(ctx context.Context) {
 	// Child span 3: Data processing
-	ctx, logger := instrumentation.CreateSpan(ctx, "process_user_data")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "process_user_data")
 	defer logger.End()
 
 	logger.Info("Processing user data")
 
 	// Nested child span: Data transformation
-	ctx, transformLogger := instrumentation.CreateSpan(ctx, "transform_data")
+	ctx, transformLogger := instrumentation.CreateLogSpan(ctx, "transform_data")
 	defer transformLogger.End()
 
 	transformLogger.Info("Transforming data format", "from", "JSON", "to", "Protobuf")
@@ -145,7 +145,7 @@ func processUserData(ctx context.Context) {
 
 func demonstrateCurrentSpanLogger(ctx context.Context) {
 	// Create an owned span for the main operation
-	ctx, mainLogger := instrumentation.CreateSpan(ctx, "main_operation")
+	ctx, mainLogger := instrumentation.CreateLogSpan(ctx, "main_operation")
 	defer mainLogger.End()
 
 	mainLogger.Info("Main operation started")
@@ -192,7 +192,7 @@ func formatOutput(ctx context.Context, result string) {
 }
 
 // ============================================================================
-// Section 3: CreateRootSpan() - Breaking Parent Chain
+// Section 3: CreateRootLogSpan() - Breaking Parent Chain
 // ============================================================================
 //
 // Use CreateRootSpan when:
@@ -207,9 +207,9 @@ func formatOutput(ctx context.Context, result string) {
 // - Independent from any existing span in context
 // - Still must call defer logger.End()
 
-func demonstrateCreateRootSpan(ctx context.Context) {
+func demonstrateCreateRootLogSpan(ctx context.Context) {
 	// First, create a parent span to show the contrast
-	ctx, parentLogger := instrumentation.CreateSpan(ctx, "original_request_trace")
+	ctx, parentLogger := instrumentation.CreateLogSpan(ctx, "original_request_trace")
 	defer parentLogger.End()
 
 	parentLogger.Info("Original request started", "request_id", "req-123")
@@ -226,7 +226,7 @@ func demonstrateCreateRootSpan(ctx context.Context) {
 // Background job that creates its own independent trace
 func backgroundJob(ctx context.Context) {
 	// CreateRootSpan breaks the parent chain - NEW trace ID!
-	ctx, logger := instrumentation.CreateRootSpan(ctx, "background_job", "job_id", "job-456")
+	ctx, logger := instrumentation.CreateRootLogSpan(ctx, "background_job", "job_id", "job-456")
 	defer logger.End()
 
 	logger.Info("Background job started with independent trace")
@@ -240,7 +240,7 @@ func backgroundJob(ctx context.Context) {
 
 func performBackgroundWork(ctx context.Context) {
 	// This becomes a child of the background_job root span
-	ctx, logger := instrumentation.CreateSpan(ctx, "background_work_step")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "background_work_step")
 	defer logger.End()
 
 	logger.Info("Performing background work step")
@@ -249,7 +249,7 @@ func performBackgroundWork(ctx context.Context) {
 
 // Scheduled task that also creates its own trace
 func scheduledTask(ctx context.Context) {
-	ctx, logger := instrumentation.CreateRootSpan(ctx, "scheduled_task", "task_type", "cleanup")
+	ctx, logger := instrumentation.CreateRootLogSpan(ctx, "scheduled_task", "task_type", "cleanup")
 	defer logger.End()
 
 	logger.Info("Scheduled task started with independent trace")
@@ -262,7 +262,7 @@ func scheduledTask(ctx context.Context) {
 }
 
 func cleanupOldData(ctx context.Context) {
-	ctx, logger := instrumentation.CreateSpan(ctx, "cleanup_old_data")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "cleanup_old_data")
 	defer logger.End()
 
 	logger.Info("Cleaning up old data", "days_old", 30)

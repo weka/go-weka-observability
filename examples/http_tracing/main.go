@@ -74,7 +74,7 @@ func (s *HTTPServer) handleAPIData(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Create a span for database operation simulation
-	ctx, logger := instrumentation.CreateSpan(ctx, "database.query")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "database.query")
 	defer logger.End()
 
 	logger.Info("Querying database for user data", "query", "SELECT * FROM users")
@@ -109,13 +109,13 @@ func (s *HTTPServer) handleAPIProcess(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Create spans for different processing steps
-	ctx, logger := instrumentation.CreateSpan(ctx, "data.validation")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "data.validation")
 	logger.Info("Validating input data")
 	time.Sleep(50 * time.Millisecond)
 	logger.End()
 
 	// Processing step
-	ctx, logger = instrumentation.CreateSpan(ctx, "data.processing")
+	ctx, logger = instrumentation.CreateLogSpan(ctx, "data.processing")
 	defer logger.End()
 	logger.Info("Processing business logic", "step", "transformation")
 
@@ -152,7 +152,7 @@ func (s *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	view.Info("Health check requested - logged under current span")
 
 	// For more complex health checks, create a dedicated span
-	_, logger := instrumentation.CreateSpan(ctx, "health.check")
+	_, logger := instrumentation.CreateLogSpan(ctx, "health.check")
 	defer logger.End()
 
 	logger.Info("Performing detailed health check")
@@ -171,14 +171,14 @@ func (s *HTTPServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // simulateDataProcessing demonstrates nested span creation for complex operations
 func (s *HTTPServer) simulateDataProcessing(ctx context.Context) {
-	_, logger := instrumentation.CreateSpan(ctx, "data.transform")
+	_, logger := instrumentation.CreateLogSpan(ctx, "data.transform")
 	defer logger.End()
 
 	logger.Info("Transforming data", "transformation", "json_to_struct")
 	time.Sleep(30 * time.Millisecond)
 
 	// Nested operation
-	_, logger2 := instrumentation.CreateSpan(ctx, "data.validate")
+	_, logger2 := instrumentation.CreateLogSpan(ctx, "data.validate")
 	defer logger2.End()
 
 	logger2.Info("Validating transformed data", "validation_rules", 3)
@@ -187,7 +187,7 @@ func (s *HTTPServer) simulateDataProcessing(ctx context.Context) {
 
 // simulateExternalServiceCall demonstrates how to propagate traces to external HTTP calls
 func (s *HTTPServer) simulateExternalServiceCall(ctx context.Context) {
-	_, logger := instrumentation.CreateSpan(ctx, "external.service_call")
+	_, logger := instrumentation.CreateLogSpan(ctx, "external.service_call")
 	defer logger.End()
 
 	logger.Info("Calling external service", "service", "analytics-api")
@@ -230,7 +230,7 @@ func NewHTTPClient(baseURL string) *HTTPClient {
 // Get performs a GET request with automatic trace propagation via otelhttp
 func (c *HTTPClient) Get(ctx context.Context, endpoint string) (*Response, error) {
 	// Create a span for this business logic operation
-	ctx, logger := instrumentation.CreateSpan(ctx, fmt.Sprintf("client.get_%s", endpoint))
+	ctx, logger := instrumentation.CreateLogSpan(ctx, fmt.Sprintf("client.get_%s", endpoint))
 	defer logger.End()
 
 	url := c.baseURL + endpoint
@@ -287,7 +287,7 @@ func (c *HTTPClient) Get(ctx context.Context, endpoint string) (*Response, error
 // Post performs a POST request with automatic trace propagation via otelhttp
 func (c *HTTPClient) Post(ctx context.Context, endpoint string, data any) (*Response, error) {
 	// Create a span for this business logic operation
-	ctx, logger := instrumentation.CreateSpan(ctx, fmt.Sprintf("client.post_%s", endpoint))
+	ctx, logger := instrumentation.CreateLogSpan(ctx, fmt.Sprintf("client.post_%s", endpoint))
 	defer logger.End()
 
 	url := c.baseURL + endpoint
@@ -397,7 +397,7 @@ func main() {
 	// EXAMPLE: CreateRootSpan - Start a new independent trace for client workflow
 	// This breaks the parent chain and creates a new trace ID
 	// Use this for background jobs or operations that should be tracked independently
-	ctx, rootLogger := instrumentation.CreateRootSpan(ctx, "client.workflow")
+	ctx, rootLogger := instrumentation.CreateRootLogSpan(ctx, "client.workflow")
 	defer rootLogger.End()
 
 	rootLogger.Info("Starting client workflow demonstration with independent trace")
@@ -405,7 +405,7 @@ func main() {
 	// Demonstrate multiple HTTP calls within the same trace
 
 	// 1. Health check - EXAMPLE: CreateSpan for child operation
-	healthCheckCtx, healthLogger := instrumentation.CreateSpan(ctx, "workflow.health_check")
+	healthCheckCtx, healthLogger := instrumentation.CreateLogSpan(ctx, "workflow.health_check")
 	healthResp, err := client.Get(healthCheckCtx, "/health")
 	if err != nil {
 		healthLogger.Error(err, "Health check failed")
@@ -415,7 +415,7 @@ func main() {
 	healthLogger.End()
 
 	// 2. Data retrieval - EXAMPLE: CreateSpan for child operation
-	getDataCtx, dataLogger := instrumentation.CreateSpan(ctx, "workflow.get_data")
+	getDataCtx, dataLogger := instrumentation.CreateLogSpan(ctx, "workflow.get_data")
 	dataResp, err := client.Get(getDataCtx, "/api/data")
 	if err != nil {
 		dataLogger.Error(err, "Data retrieval failed")
@@ -427,7 +427,7 @@ func main() {
 	dataLogger.End()
 
 	// 3. Data processing - EXAMPLE: CreateSpan for child operation
-	processDataCtx, processLogger := instrumentation.CreateSpan(ctx, "workflow.process_data")
+	processDataCtx, processLogger := instrumentation.CreateLogSpan(ctx, "workflow.process_data")
 	processResp, err := client.Post(processDataCtx, "/api/process", map[string]string{
 		"input": "sample_data_for_processing",
 	})

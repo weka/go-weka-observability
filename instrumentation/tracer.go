@@ -26,7 +26,7 @@ type tracerKey struct{}
 //
 // ⚠️ WARNING: Direct tracer usage bypasses SpanLogger integration (no automatic
 // log/trace correlation, manual span.End() required, no compile-time safety).
-// Consider using CreateSpanWithOptions() or convenience functions instead.
+// Consider using CreateLogSpanWithOptions() or convenience functions instead.
 //
 // # When to Use GetTracer
 //

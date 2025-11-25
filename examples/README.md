@@ -6,11 +6,11 @@ This directory contains example programs demonstrating various features of the g
 
 The go-weka-observability library provides three API functions for working with spans and logging:
 
-### 1. `CreateSpan(ctx, name, ...keysAndValues)` - Creating Owned Spans
+### 1. `CreateLogSpan(ctx, name, ...keysAndValues)` - Creating Owned Spans
 **When to use:** You're creating a new operation that should be tracked as a child span.
 
 ```go
-ctx, logger := instrumentation.CreateSpan(ctx, "operation_name", "user_id", 123)
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation_name", "user_id", 123)
 defer logger.End() // Required!
 
 logger.Info("Operation started")
@@ -37,11 +37,11 @@ view.Info("Helper function working")
 - No new span created - logs go to current span
 - Perfect for utility functions and helpers
 
-### 3. `CreateRootSpan(ctx, name, ...keysAndValues)` - Breaking Parent Chain
+### 3. `CreateRootLogSpan(ctx, name, ...keysAndValues)` - Breaking Parent Chain
 **When to use:** Starting a new independent trace (background jobs, async operations).
 
 ```go
-ctx, logger := instrumentation.CreateRootSpan(ctx, "background_job", "job_id", "abc")
+ctx, logger := instrumentation.CreateRootLogSpan(ctx, "background_job", "job_id", "abc")
 defer logger.End() // Required!
 
 logger.Info("Independent trace with new trace ID")
@@ -86,7 +86,7 @@ go run ./examples/basic
 ```
 
 **Demonstrates:**
-- Basic `CreateSpan()` usage
+- Basic `CreateLogSpan()` usage
 - Nested span creation
 - Context propagation between functions
 - OpenTelemetry SDK setup
@@ -116,9 +116,9 @@ go run ./examples/span_lifecycle
 ```
 
 **Demonstrates:**
-- **Section 1:** `CreateSpan()` for owned spans with parent-child relationships
+- **Section 1:** `CreateLogSpan()` for owned spans with parent-child relationships
 - **Section 2:** `CurrentSpanLogger()` for borrowed spans in helper functions
-- **Section 3:** `CreateRootSpan()` for independent traces in background jobs
+- **Section 3:** `CreateRootLogSpan()` for independent traces in background jobs
 
 **Best for:** Learning the differences between the three API functions.
 
@@ -161,7 +161,7 @@ defer end()
 
 **After:**
 ```go
-ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 defer logger.End()
 ```
 
@@ -194,7 +194,7 @@ defer end()
 **After:**
 ```go
 // Automatically creates new trace ID
-ctx, logger := instrumentation.CreateRootSpan(ctx, "background_job")
+ctx, logger := instrumentation.CreateRootLogSpan(ctx, "background_job")
 defer logger.End()
 ```
 
@@ -215,13 +215,13 @@ defer logger.End()
 ### 1. Span Ownership and Lifecycle
 ✅ **DO:** Always use `defer logger.End()` immediately after creating a span:
 ```go
-ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 defer logger.End() // Ensures span closes even on early returns/panics
 ```
 
 ❌ **DON'T:** Forget to call `End()` or call it manually without defer:
 ```go
-ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 // ... code ...
 logger.End() // BAD: Won't execute if panic or early return happens
 ```
@@ -239,7 +239,7 @@ func validateInput(ctx context.Context, input string) error {
 ❌ **DON'T:** Create unnecessary spans in every helper function:
 ```go
 func validateInput(ctx context.Context, input string) error {
-    ctx, logger := instrumentation.CreateSpan(ctx, "validate_input")
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "validate_input")
     defer logger.End()
     // Overkill if just logging a few lines
 }
@@ -248,7 +248,7 @@ func validateInput(ctx context.Context, input string) error {
 ### 3. Parent-Child Span Relationships
 ✅ **DO:** Pass the updated context to maintain parent-child relationships:
 ```go
-ctx, logger := instrumentation.CreateSpan(ctx, "parent")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "parent")
 defer logger.End()
 
 childFunction(ctx) // Pass updated context
@@ -257,7 +257,7 @@ childFunction(ctx) // Pass updated context
 ❌ **DON'T:** Pass the original context, breaking the trace chain:
 ```go
 originalCtx := ctx
-ctx, logger := instrumentation.CreateSpan(ctx, "parent")
+ctx, logger := instrumentation.CreateLogSpan(ctx, "parent")
 defer logger.End()
 
 childFunction(originalCtx) // BAD: Child won't be linked to parent
@@ -286,19 +286,19 @@ if err := checkCache(ctx); err != nil {
 ```
 
 ### 5. Root Spans for Background Jobs
-✅ **DO:** Use `CreateRootSpan()` for independent operations:
+✅ **DO:** Use `CreateRootLogSpan()` for independent operations:
 ```go
 go func(parentCtx context.Context) {
-    ctx, logger := instrumentation.CreateRootSpan(parentCtx, "background_job")
+    ctx, logger := instrumentation.CreateRootLogSpan(parentCtx, "background_job")
     defer logger.End()
     // This trace is independent from the parent request
 }(ctx)
 ```
 
-❌ **DON'T:** Use `CreateSpan()` if you want independent traces:
+❌ **DON'T:** Use `CreateLogSpan()` if you want independent traces:
 ```go
 go func(parentCtx context.Context) {
-    ctx, logger := instrumentation.CreateSpan(parentCtx, "background_job")
+    ctx, logger := instrumentation.CreateLogSpan(parentCtx, "background_job")
     defer logger.End()
     // BAD: This is still part of the parent trace
 }(ctx)

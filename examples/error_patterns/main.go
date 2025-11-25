@@ -83,7 +83,7 @@ func main() {
 // - Use for informational error logging
 
 func demonstrateRecoverableErrors(ctx context.Context) {
-	ctx, logger := instrumentation.CreateSpan(ctx, "process_with_recoverable_errors")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "process_with_recoverable_errors")
 	defer logger.End()
 
 	logger.Info("Starting operation that may encounter recoverable errors")
@@ -120,7 +120,7 @@ func demonstrateRecoverableErrors(ctx context.Context) {
 }
 
 func checkCache(ctx context.Context, key string) error {
-	_, logger := instrumentation.CreateSpan(ctx, "cache_lookup")
+	_, logger := instrumentation.CreateLogSpan(ctx, "cache_lookup")
 	defer logger.End()
 
 	logger.Debug("Looking up cache key", "key", key)
@@ -133,7 +133,7 @@ func checkCache(ctx context.Context, key string) error {
 }
 
 func enableOptionalFeature(ctx context.Context, feature string) error {
-	_, logger := instrumentation.CreateSpan(ctx, "enable_optional_feature")
+	_, logger := instrumentation.CreateLogSpan(ctx, "enable_optional_feature")
 	defer logger.End()
 
 	logger.Debug("Attempting to enable optional feature", "feature", feature)
@@ -146,7 +146,7 @@ func enableOptionalFeature(ctx context.Context, feature string) error {
 }
 
 func callExternalAPI(ctx context.Context, url string, attempt int) error {
-	_, logger := instrumentation.CreateSpan(ctx, "call_external_api")
+	_, logger := instrumentation.CreateLogSpan(ctx, "call_external_api")
 	defer logger.End()
 
 	logger.Debug("Calling external API", "url", url, "attempt", attempt)
@@ -179,7 +179,7 @@ func callExternalAPI(ctx context.Context, url string, attempt int) error {
 // - Use for actual operation failures
 
 func demonstrateCriticalErrors(ctx context.Context) {
-	ctx, logger := instrumentation.CreateSpan(ctx, "process_with_critical_errors")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "process_with_critical_errors")
 	defer logger.End()
 
 	logger.Info("Starting operation that may encounter critical errors")
@@ -197,7 +197,7 @@ func demonstrateCriticalErrors(ctx context.Context) {
 }
 
 func validateUserInput(ctx context.Context, input string) error {
-	ctx, logger := instrumentation.CreateSpan(ctx, "validate_user_input")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "validate_user_input")
 	defer logger.End()
 
 	logger.Debug("Validating user input", "input_length", len(input))
@@ -223,7 +223,7 @@ func validateUserInput(ctx context.Context, input string) error {
 // - Demonstrates when to use Error() vs SetError()
 
 func demonstrateComplexErrorHandling(ctx context.Context) {
-	ctx, logger := instrumentation.CreateSpan(ctx, "complex_workflow")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "complex_workflow")
 	defer logger.End()
 
 	logger.Info("Starting complex workflow with mixed error handling")
@@ -265,7 +265,7 @@ func demonstrateComplexErrorHandling(ctx context.Context) {
 }
 
 func loadUserData(ctx context.Context, userID string) (string, error) {
-	ctx, logger := instrumentation.CreateSpan(ctx, "load_user_data")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "load_user_data")
 	defer logger.End()
 
 	logger.Debug("Loading user data from database", "user_id", userID)
@@ -276,7 +276,7 @@ func loadUserData(ctx context.Context, userID string) (string, error) {
 }
 
 func loadUserPreferences(ctx context.Context, userID string) (string, error) {
-	ctx, logger := instrumentation.CreateSpan(ctx, "load_user_preferences")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "load_user_preferences")
 	defer logger.End()
 
 	logger.Debug("Loading user preferences", "user_id", userID)
@@ -292,7 +292,7 @@ func getDefaultPreferences() string {
 }
 
 func sendNotification(ctx context.Context, userID string, message string) error {
-	ctx, logger := instrumentation.CreateSpan(ctx, "send_notification")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "send_notification")
 	defer logger.End()
 
 	logger.Debug("Sending notification", "user_id", userID, "message", message)
@@ -304,7 +304,7 @@ func sendNotification(ctx context.Context, userID string, message string) error 
 }
 
 func updateActivityLog(ctx context.Context, userID string, action string) error {
-	ctx, logger := instrumentation.CreateSpan(ctx, "update_activity_log")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "update_activity_log")
 	defer logger.End()
 
 	logger.Debug("Updating activity log", "user_id", userID, "action", action)

@@ -43,7 +43,7 @@ func main() {
 
 func demonstrateTypeSefeSpanCreation(ctx context.Context) {
 	// Example 1: CreateSpanWithOptions for type-safe span creation
-	ctx, dbLogger := instrumentation.CreateSpanWithOptions(ctx, "database-query",
+	ctx, dbLogger := instrumentation.CreateLogSpanWithOptions(ctx, "database-query",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("db.system", "postgresql"),
@@ -70,12 +70,10 @@ func demonstrateTypeSefeSpanCreation(ctx context.Context) {
 
 func demonstrateConvenienceFunctions(ctx context.Context) {
 	// Server span - for HTTP/gRPC request handlers
-	ctx, serverLogger := instrumentation.CreateServerSpan(ctx, "http-request-handler",
-		trace.WithAttributes(
-			attribute.String("http.method", "GET"),
-			attribute.String("http.route", "/api/users"),
-			attribute.String("http.scheme", "https"),
-		),
+	ctx, serverLogger := instrumentation.CreateServerLogSpan(ctx, "http-request-handler",
+		"http.method", "GET",
+		"http.route", "/api/users",
+		"http.scheme", "https",
 	)
 	defer serverLogger.End()
 
@@ -83,12 +81,10 @@ func demonstrateConvenienceFunctions(ctx context.Context) {
 	simulateWork()
 
 	// Client span - for outgoing HTTP/gRPC calls
-	ctx, clientLogger := instrumentation.CreateClientSpan(ctx, "external-api-call",
-		trace.WithAttributes(
-			attribute.String("http.method", "POST"),
-			attribute.String("http.url", "https://api.example.com/data"),
-			attribute.Int("http.status_code", 200),
-		),
+	ctx, clientLogger := instrumentation.CreateClientLogSpan(ctx, "external-api-call",
+		"http.method", "POST",
+		"http.url", "https://api.example.com/data",
+		"http.status_code", 200,
 	)
 	defer clientLogger.End()
 
@@ -97,12 +93,10 @@ func demonstrateConvenienceFunctions(ctx context.Context) {
 	clientLogger.Info("API call completed")
 
 	// Producer span - for message publishing
-	ctx, producerLogger := instrumentation.CreateProducerSpan(ctx, "publish-event",
-		trace.WithAttributes(
-			attribute.String("messaging.system", "kafka"),
-			attribute.String("messaging.destination", "user-events"),
-			attribute.String("messaging.operation", "publish"),
-		),
+	ctx, producerLogger := instrumentation.CreateProducerLogSpan(ctx, "publish-event",
+		"messaging.system", "kafka",
+		"messaging.destination", "user-events",
+		"messaging.operation", "publish",
 	)
 	defer producerLogger.End()
 
@@ -112,12 +106,10 @@ func demonstrateConvenienceFunctions(ctx context.Context) {
 	producerLogger.Info("Message published successfully")
 
 	// Consumer span - for message consumption
-	consumerCtx, consumerLogger := instrumentation.CreateConsumerSpan(ctx, "consume-event",
-		trace.WithAttributes(
-			attribute.String("messaging.system", "kafka"),
-			attribute.String("messaging.destination", "user-events"),
-			attribute.String("messaging.operation", "receive"),
-		),
+	consumerCtx, consumerLogger := instrumentation.CreateConsumerLogSpan(ctx, "consume-event",
+		"messaging.system", "kafka",
+		"messaging.destination", "user-events",
+		"messaging.operation", "receive",
 	)
 	defer consumerLogger.End()
 
@@ -129,7 +121,7 @@ func demonstrateConvenienceFunctions(ctx context.Context) {
 func demonstrateRootSpanWithOptions(ctx context.Context) {
 	// CreateRootSpanWithOptions creates a new independent trace
 	// (breaks parent span relationship, starts new trace ID)
-	_, jobLogger := instrumentation.CreateRootSpanWithOptions(ctx, "background-cleanup-job",
+	_, jobLogger := instrumentation.CreateRootLogSpanWithOptions(ctx, "background-cleanup-job",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("job.type", "cleanup"),

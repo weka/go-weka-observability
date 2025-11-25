@@ -96,7 +96,7 @@ func main() {
 func outerFunc(ctx context.Context) {
 	// CreateSpan creates a new child span that you own
 	// You MUST call defer logger.End() to properly close the span
-	ctx, logger := instrumentation.CreateSpan(ctx, "outerFunc")
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "outerFunc")
 	defer logger.End()
 
 	logger.Info("outerFunc is called")
@@ -108,7 +108,7 @@ func outerFunc(ctx context.Context) {
 func innerFunc1(ctx context.Context) {
 	// CreateSpan creates a new child span (child of outerFunc's span)
 	// The span is automatically linked to its parent through the context
-	_, logger := instrumentation.CreateSpan(ctx, "innerFunc1")
+	_, logger := instrumentation.CreateLogSpan(ctx, "innerFunc1")
 	defer logger.End()
 
 	logger.Info("innerFunc1 is called", "func", "innerFunc1")
@@ -116,7 +116,7 @@ func innerFunc1(ctx context.Context) {
 
 func innerFunc2(ctx context.Context) {
 	// CreateSpan creates a new child span
-	_, logger := instrumentation.CreateSpan(ctx, "innerFunc2")
+	_, logger := instrumentation.CreateLogSpan(ctx, "innerFunc2")
 	defer logger.End()
 
 	logger.Info("innerFunc2 is called", "func", "innerFunc2")
