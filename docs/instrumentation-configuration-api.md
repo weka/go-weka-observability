@@ -10,7 +10,11 @@ The `instrumentation` package provides OpenTelemetry-based distributed tracing w
 - Automatic trace context propagation
 - Integration with logr.Logger for unified observability
 - Production-ready with graceful degradation (no endpoint = no export)
-- Combined logging and tracing via `GetLogSpan`
+- Combined logging and tracing via SpanLogger API (`CreateLogSpan`, `CurrentSpanLogger`, `CreateRootLogSpan`)
+
+**📖 See Also:**
+- **[SpanLogger API Documentation](spanlogger-api.md)** - Complete guide to span creation and lifecycle management
+- **[Examples](../examples/)** - Runnable examples demonstrating span usage patterns
 
 ---
 
@@ -43,11 +47,11 @@ func main() {
     }
     defer shutdown(ctx)
 
-    // Use combined logging and tracing
-    ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
-    defer end()
+    // Create a traced operation with automatic logging
+    ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation", "user", "alice")
+    defer spanLogger.End() // Required!
 
-    spanLogger.Info("Operation started", "user", "alice")
+    spanLogger.Info("Operation started")
 }
 ```
 
@@ -55,6 +59,8 @@ func main() {
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 ```
+
+**📖 For more span API patterns:** See [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootLogSpan` usage.
 
 ### With Fallback Endpoint (Env Always Takes Precedence)
 
@@ -108,7 +114,7 @@ SetupOTelSDKInternal() (initialization)
     ↓
     ├─→ TracerProvider (with exporter)
     ├─→ TextMapPropagator (for context propagation)
-    └─→ Global Tracer (accessible via instrumentation.Tracer)
+    └─→ Tracer Cache (with provider detection)
 ```
 
 ### Trace + Log Flow
@@ -312,37 +318,54 @@ shutdown, err := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1", l
 
 ## Combined Logging and Tracing
 
-### GetLogSpan - Unified Observability
+### SpanLogger API - Unified Observability
 
-The `GetLogSpan` function creates both a span and a logger with trace context:
+The SpanLogger API provides three functions for different span ownership patterns:
 
+**1. CreateLogSpan - Create Owned Spans (Most Common)**
 ```go
-ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
-defer end()
+ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation-name", "user_id", 123)
+defer spanLogger.End() // Required!
 
-spanLogger.Info("Processing request", "user_id", 123)
+spanLogger.Info("Processing request")
 spanLogger.Error(err, "Failed to process", "retry_count", 3)
 ```
 
-**IMPORTANT:** A logger MUST be stored in context before calling `GetLogSpan`:
+**2. CurrentSpanLogger - Borrow Current Span (Helper Functions)**
+```go
+// In helper functions that just need to log
+view := instrumentation.CurrentSpanLogger(ctx)
+view.Info("Helper function working")
+// No End() call - compile-time safety!
+```
+
+**3. CreateRootLogSpan - Independent Traces (Background Jobs)**
+```go
+ctx, spanLogger := instrumentation.CreateRootLogSpan(ctx, "background-job", "job_id", "abc")
+defer spanLogger.End() // Required!
+
+spanLogger.Info("Background job with new trace ID")
+```
+
+**IMPORTANT:** A logger MUST be stored in context before creating spans:
 
 ```go
 // REQUIRED: Store logger in context first
 logr := logger.CreateLogger(logger.WithInfoLevel())
 ctx = logger.ContextWithLogr(ctx, logr)
 
-// Now GetLogSpan can retrieve it
-ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
+// Now span creation functions can retrieve it
+ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation")
 ```
 
 If no logger is in context, a default logger will be created automatically (but you lose control over logger configuration).
 
-**What happens:**
-1. Retrieves logger from context (or creates default if missing)
-2. Creates OpenTelemetry span
-3. Enriches logger with `trace_id` and `span_id` fields
-4. Returns `SpanLogger` that combines both
-5. `defer end()` closes the span
+**📖 Complete Documentation:**
+- **[SpanLogger API Guide](spanlogger-api.md)** - Architecture, design decisions, migration guide
+- **[Examples](../examples/)** - Comprehensive runnable examples
+
+**🔄 Migration Note:**
+The old `GetLogSpan` API is deprecated. See the [migration guide](spanlogger-api.md#migration-from-getlogspan) for upgrade instructions.
 
 ### SpanLogger Methods
 
@@ -536,28 +559,95 @@ func handleOrders(w http.ResponseWriter, r *http.Request) {
 
 ## Testing
 
-### Testing with Instrumentation
+### Testing Pattern 1: Context Override (Recommended)
+
+**Best for**: Parallel tests requiring complete isolation without affecting global state.
 
 ```go
+import (
+    "go.opentelemetry.io/otel/sdk/trace"
+    "go.opentelemetry.io/otel/sdk/trace/tracetest"
+)
+
 func TestProcessOrder(t *testing.T) {
+    t.Parallel()  // ✅ Safe parallel execution
+
     ctx := context.Background()
 
-    // Create test logger
+    // Create test tracer with span recorder
+    recorder := tracetest.NewSpanRecorder()
+    tp := trace.NewTracerProvider(trace.WithSpanProcessor(recorder))
+    tracer := tp.Tracer("test-tracer")
+    defer tp.Shutdown(ctx)
+
+    // Inject via context (no global state mutation)
+    ctx = instrumentation.ContextWithTracer(ctx, tracer)
+
+    // Store logger in context
     logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
 
-    // Setup instrumentation without exporter (testing mode)
-    shutdown, err := instrumentation.SetupOTelSDKWithOptions(
-        ctx, "test-service", "v1.0.0", logr,
-        // No endpoint = no export, but tracing still works
-    )
-    require.NoError(t, err)
-    defer shutdown(ctx)
-
-    // Test your traced functions
-    err = processOrder(ctx, "order-123")
+    // Test your traced functions - all spans use injected tracer
+    err := processOrder(ctx, "order-123")
     assert.NoError(t, err)
+
+    // Verify spans were created
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+    assert.Equal(t, "processOrder", spans[0].Name())
 }
 ```
+
+**Advantages:**
+- ✅ Zero global state mutation
+- ✅ Perfect test isolation
+- ✅ Can run unlimited parallel tests
+- ✅ Each test has independent tracer
+- ✅ No cleanup needed
+
+### Testing Pattern 2: Provider Swap
+
+**Best for**: Testing library behavior with different providers.
+
+```go
+func TestWithProviderSwap(t *testing.T) {
+    t.Parallel()  // ✅ Also safe!
+
+    ctx := context.Background()
+
+    // Create test provider
+    recorder := tracetest.NewSpanRecorder()
+    tp := trace.NewTracerProvider(trace.WithSpanProcessor(recorder))
+    defer tp.Shutdown(ctx)
+
+    // Swap global provider
+    otel.SetTracerProvider(tp)
+
+    // Store logger in context
+    logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // getTracer() automatically detects provider change
+    err := processOrder(ctx, "order-123")
+    assert.NoError(t, err)
+
+    // Verify spans
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+}
+```
+
+**How it works:**
+1. Test swaps global provider with `otel.SetTracerProvider()`
+2. Next span creation detects provider change (pointer comparison)
+3. Cache invalidated, new tracer created from new provider
+4. All subsequent calls use new tracer
+
+**Advantages:**
+- ✅ Tests library's provider integration
+- ✅ Matches OpenTelemetry best practices
+- ✅ No context passing needed for tracer
+- ✅ Automatic cache invalidation
 
 ### Testing with Custom Endpoint
 
@@ -578,6 +668,92 @@ func TestWithCollector(t *testing.T) {
     // Your tests
 }
 ```
+
+### Testing Pattern 3: Helper Functions (Simplest)
+
+**Best for**: Quick test setup with minimal boilerplate.
+
+The `instrumentation/oteltest` package provides two helper functions for common testing scenarios:
+
+#### oteltest.SetupTester (Parallel-Safe)
+
+For most tests, use `oteltest.SetupTester()` which is safe for parallel execution:
+
+```go
+import "github.com/weka/go-weka-observability/instrumentation/oteltest"
+
+func TestMyFeature(t *testing.T) {
+    t.Parallel()  // Safe for parallel execution
+
+    ctx := context.Background()
+    ctx, recorder := oteltest.SetupTester(ctx)
+    defer recorder.Shutdown(context.Background())
+
+    // Store logger in context
+    logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // Your test code using CreateLogSpan, CreateRootLogSpan, etc.
+    ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation")
+    defer spanLogger.End()
+
+    spanLogger.Info("Processing request")
+
+    // Assertions
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+    assert.Equal(t, "operation", spans[0].Name())
+}
+```
+
+**Advantages:**
+- Minimal boilerplate (2 lines setup)
+- Safe for parallel tests (context-based tracer isolation)
+- Sets up propagator for production code that relies on trace propagation
+- Returns context with cached tracer and span recorder
+- Perfect for unit tests
+
+**Note:**
+This function sets the global `TextMapPropagator` (required for propagation to work), but this is safe for parallel tests because:
+- The propagator setup uses `sync.Once` (only happens once per process, efficient for 100+ tests)
+- Tracer isolation is achieved via context (no cross-test interference)
+- OpenTelemetry propagators are only available via global state (no alternative)
+
+#### oteltest.SetupTesterWithProvider (Sequential Tests Only)
+
+For integration tests that need TextMapPropagator (distributed tracing):
+
+```go
+import "github.com/weka/go-weka-observability/instrumentation/oteltest"
+
+func TestDistributedTracing(t *testing.T) {
+    // NO t.Parallel() - not safe with provider swap
+
+    ctx := context.Background()
+    ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
+    defer recorder.Shutdown(context.Background())
+
+    // Store logger in context
+    logr := logger.CreateLogger()
+    ctx = logger.ContextWithLogr(ctx, logr)
+
+    // Test code that uses propagation (HTTP headers, etc.)
+    // CreateLogSpan will use the swapped provider automatically
+    // Propagator is already set up for distributed tracing
+
+    // Assertions
+    spans := recorder.Ended()
+    require.Len(t, spans, 1)
+}
+```
+
+**When to use:**
+- Integration tests requiring TextMapPropagator
+- Tests verifying distributed tracing behavior
+- Tests that need provider swap behavior
+
+**Warning:**
+This function swaps the global TracerProvider and TextMapPropagator which are shared across all goroutines. While the global state itself is thread-safe, parallel tests will interfere with each other by overriding each other's providers.
 
 ---
 
@@ -627,30 +803,32 @@ if err != nil {
 defer shutdown(ctx)  // ✅ Ensures traces are flushed
 ```
 
-### 2. Use GetLogSpan for All Operations
+### 2. Use SpanLogger API for All Operations
 
 ```go
-// ✅ Good - unified logging and tracing
-ctx, logger, end := instrumentation.GetLogSpan(ctx, "operation")
-defer end()
+// ✅ Good - unified logging and tracing with CreateSpan
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
+defer logger.End()
 logger.Info("Processing")
 
-// ❌ Bad - separate logging and tracing
+// ❌ Bad - separate logging and tracing (low-level OTel API)
 span := trace.SpanFromContext(ctx)
 logger := logr.FromContext(ctx)
 ```
+
+**📖 See:** [SpanLogger API Documentation](spanlogger-api.md) for `CurrentSpanLogger` and `CreateRootLogSpan` patterns.
 
 ### 3. Use Descriptive Span Names
 
 ```go
 // ✅ Good - specific operation names
-instrumentation.GetLogSpan(ctx, "database.query.users")
-instrumentation.GetLogSpan(ctx, "payment.charge")
-instrumentation.GetLogSpan(ctx, "email.send")
+instrumentation.CreateLogSpan(ctx, "database.query.users")
+instrumentation.CreateLogSpan(ctx, "payment.charge")
+instrumentation.CreateLogSpan(ctx, "email.send")
 
 // ❌ Bad - generic names
-instrumentation.GetLogSpan(ctx, "process")
-instrumentation.GetLogSpan(ctx, "handle")
+instrumentation.CreateLogSpan(ctx, "process")
+instrumentation.CreateLogSpan(ctx, "handle")
 ```
 
 ### 4. Add Meaningful Attributes

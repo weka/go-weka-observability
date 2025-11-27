@@ -32,9 +32,13 @@ func TestLogSpan() {
 	// Initialize logger with environment configuration and store in context
 	logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverrides()).WithName("Test")
 	ctx = logger.ContextWithLogr(ctx, logr)
-	ctxLogger := logger.MustLogrFromContext(ctx)
 
-	shutdown, err := instrumentation.SetupOTelSDK(context.Background(), "test-logspan", "v0.0.1", ctxLogger)
+	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
+		ctx,
+		"test-logspan",
+		"v0.0.1",
+		logr,
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -48,8 +52,9 @@ func TestLogSpan() {
 }
 
 func outerFunc(ctx context.Context) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "outerFunc")
-	defer end()
+	// CreateSpan creates a new child span that you own
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "outerFunc")
+	defer logger.End()
 
 	logger.Info("outerFunc is called")
 
@@ -58,15 +63,17 @@ func outerFunc(ctx context.Context) {
 }
 
 func innerFunc1(ctx context.Context) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "innerFunc1")
-	defer end()
+	// CreateSpan creates a new child span
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "innerFunc1")
+	defer logger.End()
 
 	logger.Info("innerFunc1 is called")
 }
 
 func innerFunc2(ctx context.Context) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "innerFunc2")
-	defer end()
+	// CreateSpan creates a new child span
+	ctx, logger := instrumentation.CreateLogSpan(ctx, "innerFunc2")
+	defer logger.End()
 
 	logger.Info("innerFunc2 is called")
 }

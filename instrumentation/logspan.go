@@ -3,12 +3,10 @@ package instrumentation
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	zerologger "github.com/weka/go-weka-observability/logger"
@@ -60,82 +58,71 @@ func init() {
 
 type ContextValuesKey struct{}
 
-// SpanLogger is an abstract object that can be used instead of regular loggers and spans
-type SpanLogger struct {
-	Ctx context.Context
-	logr.Logger
-	trace.Span
-}
-
-// By default, log string in zerolog that uses `caller` will have formart:
-// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
-// without `caller`:
-// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
-// ---
-// This function will change the `logger` field to be put instead of `caller`:
-// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text" additional_field=value
-func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
-	initLogger := zerologger.NewZeroLoggerWithoutCaller()
-	zerologr.NameFieldName = "caller"
-	return zerologr.New(initLogger)
-}
-
-// Deprecated: Use logger.CreateLoggerFrom + logger.ContextWithLogr instead.
-// This function has confusing triple behavior based on nil pointer checks:
-//   - If baseLogger is nil and logger exists in context → reuses context logger
-//   - If baseLogger is nil and no logger in context → creates new logger
-//   - If baseLogger is not nil → uses provided logger
+// createChildSpan creates a new child span and enriches context with attributes.
+// This is the core span creation logic used by CreateLogSpan.
 //
-// Migration examples:
+// It merges keysAndValues with any previously stored context values (via ContextValuesKey),
+// converts them to OpenTelemetry attributes, and stores the merged values back in context
+// for future child spans to inherit.
 //
-//	Old: ctx, logger := GetLoggerForContext(ctx, nil, "name", "key", "value")
-//	New: logr := logger.CreateLoggerFrom(logger.NewDefaultConfigWithEnvOverride())
-//	     ctx = logger.ContextWithLogr(ctx, logr)
-//	     logger := logger.MustLogrFromContext(ctx).WithName("name").WithValues("key", "value")
-//
-//	Old: ctx, logger := GetLoggerForContext(ctx, &existingLogger, "name")
-//	New: ctx = logger.ContextWithLogr(ctx, existingLogger)
-//	     logger := logger.MustLogrFromContext(ctx).WithName("name")
-func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name string, keysAndValues ...any) (context.Context, logr.Logger) {
-	var logger logr.Logger
-	if baseLogger == nil {
-		logger = zerologger.LogrFromContextOrDefault(ctx)
-	} else {
-		logger = *baseLogger
-	}
+// Returns:
+//   - Updated context with new span and merged keysAndValues
+//   - The created span
+//   - Merged keysAndValues (original + inherited from context)
+func createChildSpan(ctx context.Context, name string, keysAndValues []any) (context.Context, trace.Span, []any) {
+	// Get tracer using smart resolution (context > cache > provider)
+	tracer := GetTracer(ctx)
 
-	logger = logger.WithValues(keysAndValues...)
-	if name != "" {
-		logger = logger.WithName(name)
-	}
-	retCtx := zerologger.ContextWithLogr(ctx, logger)
-	return retCtx, logger
-}
+	// Start new child span
+	ctx, span := tracer.Start(ctx, name)
 
-func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (context.Context, trace.Span) {
-	if Tracer == nil {
-		panic("Tracer is not initialized. Call SetupOTelSDK first")
-	}
-	if name == "" {
-		if len(keysAndValues) != 0 {
-			panic("When re-using old context it is forbidden to modify span values, as new span is not created")
-		}
-		span := trace.SpanFromContext(ctx)
-		return ctx, span
-	}
-	ctx, span := Tracer.Start(ctx, name)
-	// expand with values saved previously in context
+	// Merge with values saved previously in context
+	allKeysAndValues := keysAndValues
 	if ctx.Value(ContextValuesKey{}) != nil {
-		keysAndValues = append(keysAndValues, ctx.Value(ContextValuesKey{}).([]any)...)
+		prevValues := ctx.Value(ContextValuesKey{}).([]any)
+		allKeysAndValues = append(keysAndValues, prevValues...)
 	}
+
+	// Convert to span attributes and set them
+	spanAttrs := getAttributesFromKeysAndValues(allKeysAndValues...)
+	span.SetAttributes(spanAttrs...)
+
+	// Store merged values in context for future spans
+	ctx = context.WithValue(ctx, ContextValuesKey{}, allKeysAndValues)
+
+	return ctx, span, allKeysAndValues
+}
+
+// createRootSpanInternal creates a new root span, breaking the parent chain.
+// This is the core root span creation logic used by CreateRootLogSpan.
+//
+// Unlike createChildSpan, this does NOT merge with previous context values,
+// as root spans are intentionally independent with fresh context.
+//
+// Returns:
+//   - Updated context with new root span and stored keysAndValues
+//   - The created root span
+func createRootSpanInternal(ctx context.Context, name string, keysAndValues []any) (context.Context, trace.Span) {
+	// Get tracer using smart resolution (context > cache > provider)
+	tracer := GetTracer(ctx)
+
+	// Start new root span with WithNewRoot option
+	ctx, span := tracer.Start(ctx, name, trace.WithNewRoot())
+
+	// Convert to span attributes and set them (no merging for root spans)
 	spanAttrs := getAttributesFromKeysAndValues(keysAndValues...)
 	span.SetAttributes(spanAttrs...)
+
+	// Store in context for future child spans
 	ctx = context.WithValue(ctx, ContextValuesKey{}, keysAndValues)
+
 	return ctx, span
 }
 
-func (ls *SpanLogger) Enabled(level int) bool {
-	return ls.Logger.Enabled()
+// getCurrentSpan retrieves the current span from context without creating a new one.
+// This is used when name is empty (reuse existing span pattern).
+func getCurrentSpan(ctx context.Context) trace.Span {
+	return trace.SpanFromContext(ctx)
 }
 
 func getAttributesFromKeysAndValues(keysAndValues ...any) []attribute.KeyValue {
@@ -180,81 +167,6 @@ func attributeFromValue(key string, value any) attribute.KeyValue {
 		// Fallback to string representation for unknown types
 		return attribute.String(key, fmt.Sprint(v))
 	}
-}
-
-func (ls *SpanLogger) Info(msg string, keysAndValues ...any) {
-	ls.Logger.WithCallDepth(CallDepthOffset).Info(msg, keysAndValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
-	ls.AddEvent(msg)
-}
-
-func (ls *SpanLogger) Debug(msg string, keysAndValues ...any) {
-	// logr.V(1) is equivalent to zerolog.DebugLevel
-	ls.V(1).WithCallDepth(CallDepthOffset).Info(msg, keysAndValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
-	ls.AddEvent(msg)
-}
-
-func (ls *SpanLogger) Printf(msg string, args ...any) {
-	ls.WithCallDepth(CallDepthOffset).Info(fmt.Sprintf(msg, args...))
-}
-
-func (ls *SpanLogger) Errorf(msg string, args ...any) {
-	ls.WithCallDepth(CallDepthOffset).Error(fmt.Errorf(msg, args...), "")
-}
-
-func (ls *SpanLogger) InfoWithStatus(code codes.Code, msg string, keysAnValues ...any) {
-	ls.WithCallDepth(CallDepthOffset).Info(msg, keysAnValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAnValues...)...)
-	ls.AddEvent(msg)
-	ls.SetStatus(code, msg)
-}
-
-func (ls *SpanLogger) Warn(msg string, keysAndValues ...any) {
-	keysAndValues = append(keysAndValues, "level", "warn")
-	ls.Logger.WithCallDepth(CallDepthOffset).Info(msg, keysAndValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
-	ls.AddEvent(msg)
-}
-
-// Error logs an error and records it in the span as an event, but does NOT set the span status to Error.
-// Use this for logging errors that don't represent span failure (e.g., handled errors, recoverable issues).
-func (ls *SpanLogger) Error(err error, msg string, keysAndValues ...any) {
-	ls.Logger.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
-	ls.RecordError(err)
-}
-
-// SetError logs an error, records it in the span, AND sets the span status to Error.
-// Use this when the error represents a failure of the operation represented by the span.
-// The Error status will be visible in tracing UIs and indicates the span failed.
-func (ls *SpanLogger) SetError(err error, msg string, keysAndValues ...any) {
-	ls.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
-	ls.RecordError(err)
-	ls.SetStatus(codes.Error, msg)
-	// TODO: Validate that error is not set yet
-}
-
-func (ls *SpanLogger) SetAttributes(attrs ...attribute.KeyValue) {
-	if ls.Span != nil && len(attrs) > 0 {
-		ls.Span.SetAttributes(attrs...)
-	}
-}
-
-func (ls *SpanLogger) Fatal(err error, msg string, keysAndValues ...any) {
-	ls.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
-	os.Exit(1)
-}
-
-func (ls *SpanLogger) Panic(err error, msg string, keysAndValues ...any) {
-	ls.WithCallDepth(CallDepthOffset).Error(err, msg, keysAndValues...)
-	panic(err)
-}
-
-func (ls *SpanLogger) SetValues(keysAndValues ...any) {
-	ls.Logger = ls.Logger.WithValues(keysAndValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 }
 
 // validateGetLogSpanArgs ensures arguments are valid for GetLogSpan.
@@ -307,11 +219,15 @@ func createSpanShutdownFunc(span trace.Span, logger logr.Logger, name string) fu
 	}
 }
 
-// newSpanLogger creates a SpanLogger from logger and span.
-func newSpanLogger(logger logr.Logger, span trace.Span) *SpanLogger {
+// newSpanLogger creates a SpanLogger from context, logger and span.
+func newSpanLogger(ctx context.Context, logger logr.Logger, span trace.Span, shutdown func()) *SpanLogger {
 	return &SpanLogger{
-		Logger: logger,
-		Span:   span,
+		spanLoggerBase: &spanLoggerBase{
+			ctx:    ctx,
+			Logger: logger,
+			Span:   span,
+		},
+		shutdown: shutdown,
 	}
 }
 
@@ -320,105 +236,3 @@ func logOperationStart(logger logr.Logger, name string) {
 	logger.V(VerbosityLevelTrace).Info(name + " called")
 }
 
-// GetLogSpan creates or reuses a logger from context and creates a span for an operation.
-// This is the primary function for combined logging and tracing in instrumented code.
-//
-// IMPORTANT: A logger MUST be stored in context before calling GetLogSpan, otherwise a
-// default logger will be created. Always use logger.ContextWithLogr() to store your logger:
-//
-//	logr := logger.CreateLogger(logger.WithInfoLevel())
-//	ctx = logger.ContextWithLogr(ctx, logr)  // REQUIRED!
-//
-// Returns:
-//   - context.Context: Updated context with logger stored
-//   - *SpanLogger: Combined logger and span that automatically enriches logs with trace IDs
-//   - func(): Cleanup function that ends the span (must be called with defer)
-//
-// The SpanLogger automatically includes trace_id and span_id in all log messages,
-// making it easy to correlate logs with traces in your observability backend.
-//
-// Parameters:
-//   - name: Operation name for the span. Empty string ("") reuses the current span from context
-//     without creating a new one. When name is empty, calling end() is safe (no-op), but not
-//     recommended for code clarity - it makes it obvious the parent owns the span lifecycle.
-//   - keysAndValues: Optional key-value pairs added to both logs and span attributes.
-//     IMPORTANT: Cannot be used when name is empty (will panic).
-//
-// Example - Basic usage (creates new span):
-//
-//	func processRequest(ctx context.Context) {
-//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
-//	    defer end() // MUST call end() when creating new span
-//
-//	    logger.Info("Processing started", "user_id", 123)
-//	    // Logs include: trace_id=xxx span_id=yyy user_id=123
-//	}
-//
-// Example - Nested operations (creates child spans):
-//
-//	func processRequest(ctx context.Context) {
-//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
-//	    defer end()
-//
-//	    logger.Info("Processing started")
-//	    queryDatabase(ctx) // This will be a child span
-//	}
-//
-//	func queryDatabase(ctx context.Context) {
-//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "query_database")
-//	    defer end()
-//
-//	    logger.Info("Querying database")
-//	    // This span is nested under process_request
-//	}
-//
-// Example - With attributes (creates new span):
-//
-//	ctx, logger, end := instrumentation.GetLogSpan(ctx, "operation",
-//	    "user_id", 123,
-//	    "request_id", "req-456",
-//	)
-//	defer end()
-//	// Both logs and span include user_id and request_id
-//
-// Example - Reusing parent span (NO new span created):
-//
-//	func helper(ctx context.Context) {
-//	    // Get logger from context with current span's trace IDs
-//	    _, logger, _ := instrumentation.GetLogSpan(ctx, "")
-//	    // Calling end() here is safe (no-op) but not recommended for clarity
-//	    // It's better to NOT call it to make it obvious parent owns the span
-//
-//	    logger.Info("Helper doing work")
-//	    // Logs include parent's trace_id and span_id
-//	}
-//
-// IMPORTANT: When name is empty:
-//   - Returns the current span from context (doesn't create new one)
-//   - Calling end() is safe (it's a no-op) but not recommended for code clarity
-//   - Cannot pass keysAndValues (will panic)
-//   - Use this for helper functions that should log under parent's span
-//
-// SpanLogger methods:
-//   - Info(msg, keysAndValues...): Log at info level + add span event
-//   - Debug(msg, keysAndValues...): Log at debug level + add span event
-//   - Warn(msg, keysAndValues...): Log at warn level + add span event
-//   - Error(err, msg, keysAndValues...): Log error + record error in span
-//   - SetError(err, msg, keysAndValues...): Log error + set span status to error
-//   - SetAttributes(attrs...): Add attributes to span only
-//   - SetValues(keysAndValues...): Add to both logger and span
-func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger, func()) {
-	validateGetLogSpanArgs(name, keysAndValues)
-
-	logger := getOrCreateLogger(ctx)
-	logger = enrichLogger(logger, name, keysAndValues)
-	ctx = zerologger.ContextWithLogr(ctx, logger)
-
-	ctx, span := GetSpanForContext(ctx, name, keysAndValues...)
-	logger = addTraceIDsIfValid(logger, span)
-
-	shutdownFunc := createSpanShutdownFunc(span, logger, name)
-
-	logOperationStart(logger, name)
-	return ctx, newSpanLogger(logger, span), shutdownFunc
-}

@@ -1,14 +1,18 @@
-// Package instrumentation provides OpenTelemetry tracing integration with automatic
-// trace propagation and combined logging/tracing via GetLogSpan.
+// Package instrumentation provides OpenTelemetry tracing integration with smart
+// tracer management, automatic provider detection, and combined logging/tracing.
 //
 // # Key Features
 //
+//   - Smart tracer resolution with automatic provider change detection
+//   - Context-based tracer injection for test isolation
+//   - Lazy tracer initialization with thread-safe caching
 //   - Automatic OpenTelemetry SDK setup with sensible defaults
 //   - OTLP gRPC exporter for trace export
-//   - Combined logging and tracing via GetLogSpan
+//   - Combined logging and tracing via SpanLogger API
 //   - Environment variable overrides (OTEL_EXPORTER_OTLP_ENDPOINT)
 //   - Resource attributes for service identification
 //   - Graceful degradation when no collector is available
+//   - Test helpers for parallel and sequential test isolation
 //
 // # Quick Start
 //
@@ -26,12 +30,12 @@
 //
 // Combined logging and tracing:
 //
-//	// GetLogSpan creates a span and returns a logger automatically enriched with trace IDs
-//	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation-name")
-//	defer end()
+//	// CreateSpan creates a span and returns a logger automatically enriched with trace IDs
+//	ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "user_id", 123)
+//	defer spanLogger.End()
 //
-//	spanLogger.Info("Processing request", "user_id", 123)
-//	// Logs include trace_id and span_id automatically
+//	spanLogger.Info("Processing request")
+//	// Logs include trace_id, span_id, and all key-value pairs automatically
 //
 // # Environment Variables
 //
@@ -120,6 +124,55 @@
 //	    logger.Info("Helper doing work") // Uses parent's span
 //	}
 //
+// # Trace Management System
+//
+// The package uses smart tracer resolution with automatic provider detection
+// and context-based injection for test isolation.
+//
+// Tracer Resolution Strategy (Three-Tier):
+//
+//  1. Context Override - ContextWithTracer(ctx, tracer) takes priority
+//  2. Cached Tracer - Fast path with automatic provider change detection
+//  3. Provider Creation - Lazy initialization from otel.GetTracerProvider()
+//
+// Performance Characteristics:
+//   - Production (provider never changes): ~45-75ns per CreateSpan
+//   - Tests (provider swap detected): ~1-10μs on first span after swap
+//   - Thread-safe caching with double-check locking pattern
+//
+// Testing Patterns:
+//
+// Parallel tests (context-based isolation):
+//
+//	func TestFeature(t *testing.T) {
+//	    t.Parallel()  // ✅ Safe!
+//
+//	    ctx := context.Background()
+//	    ctx, recorder := instrumentation.SetupOTELTester(ctx)
+//	    defer recorder.Shutdown(context.Background())
+//
+//	    ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+//	    defer logger.End()
+//
+//	    // Verify spans
+//	    spans := recorder.Ended()
+//	}
+//
+// Sequential tests (provider-based, simpler):
+//
+//	func TestFeature(t *testing.T) {
+//	    // ⚠️ NO t.Parallel() - swaps global provider
+//
+//	    ctx := context.Background()
+//	    ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+//	    defer recorder.Shutdown(context.Background())
+//
+//	    ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+//	    defer logger.End()
+//	}
+//
+// For complete documentation see docs/trace-management.md.
+//
 // See package documentation and examples for more details.
 package instrumentation
 
@@ -130,7 +183,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/weka/go-weka-observability/internal/version"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -138,12 +190,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/credentials"
-)
-
-var (
-	Tracer trace.Tracer
 )
 
 const (
@@ -156,46 +203,6 @@ const (
 	// OpenTelemetry default is 5s; we use 1s for faster trace visibility.
 	OTLPBatchTimeout = time.Second
 )
-
-// SetupOTelSDK bootstraps the OpenTelemetry pipeline.
-// If it does not return an error, make sure to call shutdown for proper cleanup.
-// Additional resource attributes can be provided as key-value pairs.
-//
-// Deprecated: Use SetupOTelSDKFrom or SetupOTelSDKWithOptions instead.
-// This function maintains backward compatibility but doesn't allow endpoint configuration via API.
-//
-// Migration examples:
-//
-// Old:
-//
-//	shutdown, err := instrumentation.SetupOTelSDK(ctx, "service", "v1", logger, "key", "value")
-//
-// New (functional options - recommended):
-//
-//	// Create logger with explicit options (overrideable via LOG_* env vars)
-//	logr := logger.CreateLogger(
-//	    logger.WithConsoleSink(),
-//	    logger.WithInfoLevel(),
-//	)
-//	ctx = logger.ContextWithLogr(ctx, logr)
-//
-//	// Setup OpenTelemetry with options (OTEL_EXPORTER_OTLP_ENDPOINT env var can override)
-//	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
-//	    ctx, "service", "v1.0.0", logr,
-//	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
-//	    instrumentation.WithResourceAttributes("key", "value"),
-//	)
-//
-// New (explicit config):
-//
-//	config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
-//	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "service", "v1", logr, config, "key", "value")
-func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
-	return SetupOTelSDKWithOptions(
-		ctx, serviceName, serviceVersion, logger,
-		WithResourceAttributes(keysAndValues...),
-	)
-}
 
 // SetupOTelSDKFrom bootstraps the OpenTelemetry pipeline with explicit configuration.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
@@ -222,7 +229,10 @@ func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logge
 //	config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
 //	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logr, config, "key", "value")
 func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
-	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
+	logger.
+		V(VerbosityLevelDebug).
+		WithCallDepth(CallDepthOffset).
+		Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 
 	// Merge provided keysAndValues with config's ResourceAttributes
 	// Copy ResourceAttributes to avoid mutating the caller's config
@@ -241,16 +251,49 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 // This function follows the same pattern as logger.CreateLogger - functional options
 // set defaults, then environment variables (OTEL_EXPORTER_OTLP_ENDPOINT) can override.
 //
-// Complete example:
+// # Tracer Provider Setup
+//
+// This function sets the global TracerProvider via otel.SetTracerProvider(), which becomes
+// the source for all tracers in your application. You do NOT need to manually manage tracers
+// or store them in context - CreateSpan/CreateRootSpan automatically resolve the correct tracer
+// from the provider.
+//
+//	SetupOTelSDKWithOptions() → otel.SetTracerProvider(provider)
+//	CreateSpan(ctx, "op") → GetTracer(ctx) → otel.GetTracerProvider().Tracer(...)
+//
+// The tracer resolution uses smart caching with provider change detection, so it's both
+// performant (cached reads) and test-friendly (detects provider swaps automatically).
+//
+// # Logger Context Independence
+//
+// IMPORTANT: The logger parameter is used ONLY for logging during SDK initialization.
+// It is NOT automatically stored in context.
+//
+// You must call logger.ContextWithLogr() BEFORE calling CreateSpan, but the order
+// between ContextWithLogr() and SetupOTelSDKWithOptions() does NOT matter.
+//
+//	Recommended pattern (SetupOTelSDK first):
+//	  1. CreateLogger() - Creates logger instance
+//	  2. SetupOTelSDKWithOptions() - Sets TracerProvider via otel.SetTracerProvider()
+//	  3. ContextWithLogr() - Stores logger for CreateSpan to retrieve
+//	  4. CreateSpan() - Retrieves logger from context, tracer from provider
+//
+//	Alternative pattern (ContextWithLogr first):
+//	  1. CreateLogger() - Creates logger instance
+//	  2. ContextWithLogr() - Stores logger for CreateSpan to retrieve
+//	  3. SetupOTelSDKWithOptions() - Sets TracerProvider via otel.SetTracerProvider()
+//	  4. CreateSpan() - Retrieves logger from context, tracer from provider
+//
+// # Complete Example
 //
 //	// Create logger (overrideable via LOG_* env vars)
 //	logr := logger.CreateLogger(
 //	    logger.WithConsoleSink(),
 //	    logger.WithInfoLevel(),
 //	)
-//	ctx = logger.ContextWithLogr(ctx, logr)
 //
-//	// Setup OpenTelemetry (OTEL_EXPORTER_OTLP_ENDPOINT can override endpoint)
+//	// Setup OpenTelemetry (sets global TracerProvider)
+//	// OTEL_EXPORTER_OTLP_ENDPOINT env var can override endpoint
 //	shutdown, err := instrumentation.SetupOTelSDKWithOptions(
 //	    ctx, "my-service", "v1.0.0", logr,
 //	    instrumentation.WithDefaultOTLPEndpoint("http://otel-collector:4317"),
@@ -261,12 +304,18 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 //	}
 //	defer shutdown(ctx)
 //
-//	// Use combined logging and tracing
-//	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
-//	defer end()
-//	spanLogger.Info("Processing request", "user_id", 123)
+//	// Store logger in context for CreateSpan to use (order doesn't matter vs SetupOTelSDK)
+//	ctx = logger.ContextWithLogr(ctx, logr)
+//
+//	// CreateSpan automatically gets tracer from provider - no manual tracer management needed
+//	ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation", "user_id", 123)
+//	defer spanLogger.End()
+//	spanLogger.Info("Processing request")
 func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, opts ...OTelOption) (shutdown func(context.Context) error, err error) {
-	logger.V(VerbosityLevelDebug).WithCallDepth(CallDepthOffset).Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
+	logger.
+		V(VerbosityLevelDebug).
+		WithCallDepth(CallDepthOffset).
+		Info("Setting up OTel SDK", "service", serviceName, "version", serviceVersion)
 
 	// Start with defaults
 	config := DefaultOTelConfig()
@@ -285,13 +334,9 @@ func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion st
 // setupOTelSDKInternal contains the actual OpenTelemetry SDK initialization logic.
 // This is extracted to be reused by both SetupOTelSDK and SetupOTelSDKWithOptions.
 func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig) (shutdown func(context.Context) error, err error) {
-	// Create tracer with library name and version (instrumentation scope)
-	// This identifies the go-weka-observability library itself, not the user's service
-	// Both name and version are automatically determined from Go module information
-	Tracer = otel.Tracer(
-		version.GetInstrumentationName(),
-		trace.WithInstrumentationVersion(version.GetInstrumentationVersion()),
-	)
+	// Initialize tracer cache (triggers getTracer on first use)
+	// The public Tracer variable is kept in sync automatically by GetTracer()
+	// for backward compatibility
 
 	if config.Endpoint == "" {
 		logger.V(VerbosityLevelInfo).WithCallDepth(CallDepthOffset).Info("No OTLP endpoint configured - traces will not be exported")
@@ -315,7 +360,7 @@ func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion strin
 		handleErr(err)
 		return shutdown, err
 	}
-	otel.SetTracerProvider(tracerProvider)
+	otel.SetTracerProvider(tracerProvider) // <-- Magic unleashed! 🎉
 
 	return func(ctx context.Context) error {
 		err = tracerProvider.ForceFlush(context.Background())
@@ -398,42 +443,4 @@ func newTraceProvider(ctx context.Context, serviceName, serviceVersion, endpoint
 	}
 
 	return traceProvider, nil
-}
-
-func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr string) context.Context {
-	traceID, _ := trace.TraceIDFromHex(traceIDStr)
-
-	//nolint:ineffassign,staticcheck
-	if tracer == nil {
-		tracer = Tracer
-	}
-
-	sc := trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID:    traceID,
-		TraceFlags: trace.FlagsSampled,
-	})
-
-	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	//retCtx, _ := tracer.Start(ctx, "SharedClusterContext")
-	return ctx
-}
-
-func NewContextWithSpanID(ctx context.Context, tracer trace.Tracer, traceIDStr string, spanIdStr string) context.Context {
-	traceID, _ := trace.TraceIDFromHex(traceIDStr)
-	spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
-
-	//nolint:ineffassign,staticcheck
-	if tracer == nil {
-		tracer = Tracer
-	}
-
-	sc := trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: trace.FlagsSampled,
-	})
-
-	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	//retCtx, span := tracer.Start(ctx, spanName)
-	return ctx
 }
