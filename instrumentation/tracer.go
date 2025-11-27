@@ -14,9 +14,6 @@ var (
 	cachedTracer   trace.Tracer
 	cachedProvider trace.TracerProvider
 	tracerCacheMu  sync.RWMutex
-
-	// Test propagator setup (only needs to happen once)
-	setupTestPropagatorOnce sync.Once
 )
 
 // tracerKey is the context key type for storing custom tracers

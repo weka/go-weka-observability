@@ -673,25 +673,27 @@ func TestWithCollector(t *testing.T) {
 
 **Best for**: Quick test setup with minimal boilerplate.
 
-The instrumentation package provides two helper functions for common testing scenarios:
+The `instrumentation/oteltest` package provides two helper functions for common testing scenarios:
 
-#### SetupOTELTester (Parallel-Safe)
+#### oteltest.SetupTester (Parallel-Safe)
 
-For most tests, use `SetupOTELTester()` which is safe for parallel execution:
+For most tests, use `oteltest.SetupTester()` which is safe for parallel execution:
 
 ```go
+import "github.com/weka/go-weka-observability/instrumentation/oteltest"
+
 func TestMyFeature(t *testing.T) {
-    t.Parallel()  // ✅ Safe for parallel execution
+    t.Parallel()  // Safe for parallel execution
 
     ctx := context.Background()
-    ctx, recorder := instrumentation.SetupOTELTester(ctx)
+    ctx, recorder := oteltest.SetupTester(ctx)
     defer recorder.Shutdown(context.Background())
 
     // Store logger in context
     logr := logger.CreateLogger()
     ctx = logger.ContextWithLogr(ctx, logr)
 
-    // Your test code using CreateSpan, CreateRootSpan, etc.
+    // Your test code using CreateLogSpan, CreateRootLogSpan, etc.
     ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation")
     defer spanLogger.End()
 
@@ -705,11 +707,11 @@ func TestMyFeature(t *testing.T) {
 ```
 
 **Advantages:**
-- ✅ Minimal boilerplate (2 lines setup)
-- ✅ Safe for parallel tests (context-based tracer isolation)
-- ✅ Sets up propagator for production code that relies on trace propagation
-- ✅ Returns context with cached tracer and span recorder
-- ✅ Perfect for unit tests
+- Minimal boilerplate (2 lines setup)
+- Safe for parallel tests (context-based tracer isolation)
+- Sets up propagator for production code that relies on trace propagation
+- Returns context with cached tracer and span recorder
+- Perfect for unit tests
 
 **Note:**
 This function sets the global `TextMapPropagator` (required for propagation to work), but this is safe for parallel tests because:
@@ -717,16 +719,18 @@ This function sets the global `TextMapPropagator` (required for propagation to w
 - Tracer isolation is achieved via context (no cross-test interference)
 - OpenTelemetry propagators are only available via global state (no alternative)
 
-#### SetupOTELTesterWithProvider (Sequential Tests Only)
+#### oteltest.SetupTesterWithProvider (Sequential Tests Only)
 
 For integration tests that need TextMapPropagator (distributed tracing):
 
 ```go
+import "github.com/weka/go-weka-observability/instrumentation/oteltest"
+
 func TestDistributedTracing(t *testing.T) {
-    // ⚠️ NO t.Parallel() - not safe with provider swap
+    // NO t.Parallel() - not safe with provider swap
 
     ctx := context.Background()
-    ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+    ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
     defer recorder.Shutdown(context.Background())
 
     // Store logger in context
@@ -734,7 +738,7 @@ func TestDistributedTracing(t *testing.T) {
     ctx = logger.ContextWithLogr(ctx, logr)
 
     // Test code that uses propagation (HTTP headers, etc.)
-    // CreateSpan will use the swapped provider automatically
+    // CreateLogSpan will use the swapped provider automatically
     // Propagator is already set up for distributed tracing
 
     // Assertions
@@ -744,9 +748,9 @@ func TestDistributedTracing(t *testing.T) {
 ```
 
 **When to use:**
-- ⚠️ Integration tests requiring TextMapPropagator
-- ⚠️ Tests verifying distributed tracing behavior
-- ⚠️ Tests that need provider swap behavior
+- Integration tests requiring TextMapPropagator
+- Tests verifying distributed tracing behavior
+- Tests that need provider swap behavior
 
 **Warning:**
 This function swaps the global TracerProvider and TextMapPropagator which are shared across all goroutines. While the global state itself is thread-safe, parallel tests will interfere with each other by overriding each other's providers.

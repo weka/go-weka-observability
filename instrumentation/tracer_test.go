@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/go-weka-observability/instrumentation/oteltest"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -60,7 +61,7 @@ func TestContextOverride(t *testing.T) {
 	ctx := context.Background()
 
 	// Create global provider (will be ignored)
-	_, globalRecorder := instrumentation.SetupOTELTesterWithProvider(context.Background())
+	_, globalRecorder := oteltest.SetupTesterWithProvider(context.Background())
 	defer func() { _ = globalRecorder.Shutdown(context.Background()) }()
 
 	// Create custom tracer with context override
@@ -88,12 +89,12 @@ func TestContextOverride(t *testing.T) {
 // TestProviderSwapPattern tests the provider swap pattern commonly used in tests.
 // This mimics the existing test helper pattern from the design document.
 func TestProviderSwapPattern(t *testing.T) {
-	t.Parallel() // ✅ Safe with context-based isolation
+	t.Parallel() // Safe with context-based isolation
 
 	ctx := context.Background()
 
-	// Use SetupOTELTester for parallel-safe test setup
-	ctx, recorder := instrumentation.SetupOTELTester(ctx)
+	// Use oteltest.SetupTester for parallel-safe test setup
+	ctx, recorder := oteltest.SetupTester(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// GetTracer() resolves from context
@@ -112,8 +113,8 @@ func TestProviderSwapPattern(t *testing.T) {
 func TestConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 
-	// Use SetupOTELTesterWithProvider for simplified setup
-	ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+	// Use oteltest.SetupTesterWithProvider for simplified setup
+	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	var wg sync.WaitGroup
@@ -141,7 +142,7 @@ func TestContextOverrideWithRootSpan(t *testing.T) {
 	ctx := context.Background()
 
 	// Create global provider (will be ignored)
-	_, globalRecorder := instrumentation.SetupOTELTesterWithProvider(context.Background())
+	_, globalRecorder := oteltest.SetupTesterWithProvider(context.Background())
 	defer func() { _ = globalRecorder.Shutdown(context.Background()) }()
 
 	// Create custom tracer
@@ -174,8 +175,8 @@ func TestParallelTestsWithContextOverride(t *testing.T) {
 
 		ctx := context.Background()
 
-		// Use SetupOTELTester for parallel-safe, isolated setup
-		ctx, recorder := instrumentation.SetupOTELTester(ctx)
+		// Use oteltest.SetupTester for parallel-safe, isolated setup
+		ctx, recorder := oteltest.SetupTester(ctx)
 		defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 		// Create span
@@ -198,8 +199,8 @@ func TestParallelTestsWithContextOverride(t *testing.T) {
 func TestCacheHitPerformance(t *testing.T) {
 	ctx := context.Background()
 
-	// Use SetupOTELTesterWithProvider for simplified setup
-	ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+	// Use oteltest.SetupTesterWithProvider for simplified setup
+	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// First call - cache miss
@@ -249,12 +250,12 @@ func TestProviderSwapInMiddleOfOperations(t *testing.T) {
 	_ = tp2.Shutdown(ctx)
 }
 
-// TestSetupOTELTester verifies the context-based test helper
-func TestSetupOTELTester(t *testing.T) {
-	t.Parallel() // ✅ Safe
+// TestSetupTester verifies the context-based test helper
+func TestSetupTester(t *testing.T) {
+	t.Parallel() // Safe
 
 	ctx := context.Background()
-	ctx, recorder := instrumentation.SetupOTELTester(ctx)
+	ctx, recorder := oteltest.SetupTester(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Create span using helper context
@@ -271,15 +272,15 @@ func TestSetupOTELTester(t *testing.T) {
 	assert.NotNil(t, propagator)
 }
 
-// TestSetupOTELTesterParallelSafety verifies multiple parallel tests don't interfere
-func TestSetupOTELTesterParallelSafety(t *testing.T) {
+// TestSetupTesterParallelSafety verifies multiple parallel tests don't interfere
+func TestSetupTesterParallelSafety(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		i := i
 		t.Run(fmt.Sprintf("test-%d", i), func(t *testing.T) {
-			t.Parallel() // ✅ Safe
+			t.Parallel() // Safe
 
 			ctx := context.Background()
-			ctx, recorder := instrumentation.SetupOTELTester(ctx)
+			ctx, recorder := oteltest.SetupTester(ctx)
 			defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 			// Each test has its own isolated recorder
@@ -293,12 +294,12 @@ func TestSetupOTELTesterParallelSafety(t *testing.T) {
 	}
 }
 
-// TestSetupOTELTesterWithProvider verifies provider-based test helper
-func TestSetupOTELTesterWithProvider(t *testing.T) {
-	// ⚠️ NO t.Parallel() - uses global state
+// TestSetupTesterWithProvider verifies provider-based test helper
+func TestSetupTesterWithProvider(t *testing.T) {
+	// NO t.Parallel() - uses global state
 
 	ctx := context.Background()
-	ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Verify provider was swapped
@@ -314,14 +315,14 @@ func TestSetupOTELTesterWithProvider(t *testing.T) {
 	assert.NotNil(t, propagator)
 }
 
-// ExampleSetupOTELTester demonstrates parallel-safe test setup using context-based tracer injection.
+// ExampleSetupTester demonstrates parallel-safe test setup using context-based tracer injection.
 // This is the recommended approach for tests that can run in parallel.
-func ExampleSetupOTELTester() {
+func ExampleSetupTester() {
 	ctx := context.Background()
 
-	// SetupOTELTester creates test environment with context-based tracer injection
+	// oteltest.SetupTester creates test environment with context-based tracer injection
 	// Safe for parallel tests - uses ContextWithTracer internally
-	ctx, recorder := instrumentation.SetupOTELTester(ctx)
+	ctx, recorder := oteltest.SetupTester(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Create spans using context-injected tracer
@@ -339,14 +340,14 @@ func ExampleSetupOTELTester() {
 	// Span name: parallel-test-operation
 }
 
-// ExampleSetupOTELTesterWithProvider demonstrates sequential test setup using provider swap.
+// ExampleSetupTesterWithProvider demonstrates sequential test setup using provider swap.
 // This approach is simpler but NOT safe for parallel tests.
-func ExampleSetupOTELTesterWithProvider() {
+func ExampleSetupTesterWithProvider() {
 	ctx := context.Background()
 
-	// SetupOTELTesterWithProvider swaps global provider
-	// ⚠️ NOT safe for parallel tests - must run sequentially
-	ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+	// oteltest.SetupTesterWithProvider swaps global provider
+	// NOT safe for parallel tests - must run sequentially
+	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
 	defer func() { _ = recorder.Shutdown(context.Background()) }()
 
 	// Create spans - GetTracer() detects provider swap automatically

@@ -163,12 +163,12 @@ func (sl *SpanLogger) End() {
 // Returns updated context and new SpanLogger.
 //
 // The returned SpanLogger shares the same span and shutdown function as the original,
-// so calling End() on either logger will close the span correctly. However, for code
-// clarity, it's recommended to defer End() AFTER calling WithValues():
+// so calling End() on either logger will close the span correctly. For code clarity,
+// defer End() immediately after span creation, then enrich as needed:
 //
-//	ctx, logger := instrumentation.CreateServerSpan(ctx, "operation")
-//	ctx, logger = logger.WithValues("key", "value")  // Enrichment
-//	defer logger.End()  // Recommended: defer on enriched logger
+//	ctx, logger := instrumentation.CreateServerLogSpan(ctx, "operation")
+//	defer logger.End()  // Defer immediately after creation
+//	ctx, logger = logger.WithValues("key", "value")  // Enrich as needed during function
 //
 // Both patterns are functionally equivalent because the shutdown function is shared.
 func (sl *SpanLogger) WithValues(keysAndValues ...any) (context.Context, *SpanLogger) {

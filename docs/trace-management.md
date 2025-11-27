@@ -22,9 +22,9 @@
 
 - **`ContextWithTracer(ctx, tracer)`** - Public API for context-based tracer injection. Primary use case: parallel test isolation. Stores tracer in context using unexported `tracerKey{}` type.
 
-- **`SetupOTELTester(ctx)`** - Test helper for parallel tests. Returns `(context.Context, *tracetest.SpanRecorder)`. Uses context-based injection for tracer isolation. Sets up propagator once via `sync.Once`.
+- **`oteltest.SetupTester(ctx)`** - Test helper for parallel tests (in `instrumentation/oteltest` package). Returns `(context.Context, *tracetest.SpanRecorder)`. Uses context-based injection for tracer isolation. Sets up propagator once via `sync.Once`.
 
-- **`SetupOTELTesterWithProvider(ctx)`** - Test helper for sequential tests. Returns `(context.Context, *tracetest.SpanRecorder)`. Swaps global provider via `otel.SetTracerProvider()`. WARNING: NOT safe for parallel tests.
+- **`oteltest.SetupTesterWithProvider(ctx)`** - Test helper for sequential tests (in `instrumentation/oteltest` package). Returns `(context.Context, *tracetest.SpanRecorder)`. Swaps global provider via `otel.SetTracerProvider()`. WARNING: NOT safe for parallel tests.
 
 - **`tracerKey struct{}`** - Unexported context key type ensuring type safety. Prevents collisions with user code using string keys.
 
@@ -42,10 +42,10 @@
 - **Test isolation**: Parallel tests can use different tracers without global state conflicts
 - Follows OpenTelemetry's existing pattern (`trace.ContextWithSpan`)
 
-**Why two test helpers (SetupOTELTester vs SetupOTELTesterWithProvider)**:
+**Why two test helpers (oteltest.SetupTester vs oteltest.SetupTesterWithProvider)**:
 - **Different safety guarantees**: Context-based (parallel-safe) vs provider-based (simpler but sequential only)
 - **sync.Once optimization**: Parallel helper uses `sync.Once` for propagator setup (efficient for 100+ tests), sequential helper doesn't (flexibility for different configs)
-- **Migration path**: Existing tests using `otel.SetTracerProvider()` can use `SetupOTELTesterWithProvider` with minimal changes
+- **Migration path**: Existing tests using `otel.SetTracerProvider()` can use `oteltest.SetupTesterWithProvider` with minimal changes
 - **Clarity**: Explicit function names make safety guarantees obvious at call site
 
 **Why double-check locking pattern**:
@@ -54,7 +54,7 @@
 - **Thread safety**: Prevents cache corruption when multiple goroutines swap providers
 - Standard Go pattern for lazy initialization with caching
 
-**Why `sync.Once` only in SetupOTELTester**:
+**Why `sync.Once` only in oteltest.SetupTester**:
 - **Parallel efficiency**: 100+ parallel tests shouldn't redundantly set the same propagator
 - **Sequential flexibility**: Sequential tests may want different propagator configurations
 - **Idempotent operation**: `otel.SetTextMapPropagator()` is idempotent, so `sync.Once` is optimization not correctness
@@ -395,13 +395,14 @@ import (
     "testing"
     "github.com/stretchr/testify/require"
     "github.com/weka/go-weka-observability/instrumentation"
+    "github.com/weka/go-weka-observability/instrumentation/oteltest"
 )
 
 func TestFeatureA(t *testing.T) {
-    t.Parallel()  // ✅ Safe - uses context-based tracer injection
+    t.Parallel()  // Safe - uses context-based tracer injection
 
     ctx := context.Background()
-    ctx, recorder := instrumentation.SetupOTELTester(ctx)
+    ctx, recorder := oteltest.SetupTester(ctx)
     defer recorder.Shutdown(context.Background())
 
     // All CreateLogSpan calls use tracer from context
@@ -418,10 +419,10 @@ func TestFeatureA(t *testing.T) {
 }
 
 func TestFeatureB(t *testing.T) {
-    t.Parallel()  // ✅ Safe - isolated from TestFeatureA
+    t.Parallel()  // Safe - isolated from TestFeatureA
 
     ctx := context.Background()
-    ctx, recorder := instrumentation.SetupOTELTester(ctx)
+    ctx, recorder := oteltest.SetupTester(ctx)
     defer recorder.Shutdown(context.Background())
 
     ctx, logger := instrumentation.CreateLogSpan(ctx, "feature_b")
@@ -439,10 +440,10 @@ func TestFeatureB(t *testing.T) {
 
 ```go
 func TestDistributedTracing(t *testing.T) {
-    // ⚠️ NO t.Parallel() - swaps global provider
+    // NO t.Parallel() - swaps global provider
 
     ctx := context.Background()
-    ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+    ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
     defer recorder.Shutdown(context.Background())
 
     // Provider was swapped globally
@@ -528,7 +529,7 @@ func TestProviderSwapDetection(t *testing.T) {
   - **Coverage**: Priority 1 (context override) in resolution flow
 
 - **`TestProviderSwapPattern`** - Validates parallel-safe test helper
-  - Uses `SetupOTELTester()` with `t.Parallel()`
+  - Uses `oteltest.SetupTester()` with `t.Parallel()`
   - Creates spans and verifies they're recorded
   - **Coverage**: Context-based injection for parallel test safety
 
@@ -551,8 +552,8 @@ func TestProviderSwapDetection(t *testing.T) {
 - Thread safety (double-check locking)
 
 **Integration test coverage**:
-- **logspan_test.go** - Testify suite using `SetupOTELTesterWithProvider`
-- **Parallel test validation** - Multiple tests with `t.Parallel()` using `SetupOTELTester`
+- **logspan_test.go** - Testify suite using `oteltest.SetupTesterWithProvider`
+- **Parallel test validation** - Multiple tests with `t.Parallel()` using `oteltest.SetupTester`
 
 **Race detector coverage**: All tests pass with `go test -race`
 - Concurrent access to cache
@@ -561,14 +562,14 @@ func TestProviderSwapDetection(t *testing.T) {
 
 ### Test Helpers Comparison
 
-| Feature | SetupOTELTester | SetupOTELTesterWithProvider |
-|---------|----------------|---------------------------|
-| Parallel safe | ✅ Yes (context-based) | ❌ No (global provider) |
-| Use with t.Parallel() | ✅ Recommended | ❌ Forbidden |
+| Feature | oteltest.SetupTester | oteltest.SetupTesterWithProvider |
+|---------|----------------------|----------------------------------|
+| Parallel safe | Yes (context-based) | No (global provider) |
+| Use with t.Parallel() | Recommended | Forbidden |
 | Propagator setup | sync.Once (efficient) | Every call (flexible) |
 | Setup complexity | Medium | Simple |
 | Best for | 100+ parallel tests | Sequential integration tests |
-| Provider detection | N/A (context overrides) | ✅ Automatic |
+| Provider detection | N/A (context overrides) | Automatic |
 
 ## Performance Characteristics
 
@@ -621,7 +622,7 @@ Total: ~72 bytes static memory
 - Read-heavy workload (production): No lock contention
 - Write-rare workload (test provider swaps): Brief lock contention
 
-**Test parallelism**: Unlimited parallel tests with `SetupOTELTester`
+**Test parallelism**: Unlimited parallel tests with `oteltest.SetupTester`
 - Each test has isolated context tracer
 - sync.Once for propagator setup (one-time cost)
 - Zero cross-test interference
@@ -668,10 +669,10 @@ func TestFeature(t *testing.T) {
 **After (parallel-safe)**:
 ```go
 func TestFeature(t *testing.T) {
-    t.Parallel()  // ✅ Now safe!
+    t.Parallel()  // Now safe!
 
     ctx := context.Background()
-    ctx, recorder := instrumentation.SetupOTELTester(ctx)
+    ctx, recorder := oteltest.SetupTester(ctx)
     defer recorder.Shutdown(context.Background())
 
     // Test code using ctx...
@@ -682,7 +683,7 @@ func TestFeature(t *testing.T) {
 ```go
 func TestFeature(t *testing.T) {
     ctx := context.Background()
-    ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+    ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
     defer recorder.Shutdown(context.Background())
 
     // Test code...
@@ -693,10 +694,10 @@ func TestFeature(t *testing.T) {
 
 ### Known Limitations
 
-1. **Propagator is still global**: `SetupOTELTester` uses `sync.Once` for propagator, so all parallel tests share the same propagator configuration. This is acceptable because:
+1. **Propagator is still global**: `oteltest.SetupTester` uses `sync.Once` for propagator, so all parallel tests share the same propagator configuration. This is acceptable because:
    - OpenTelemetry doesn't provide context-based propagators
    - Most tests don't need different propagator configs
-   - `SetupOTELTesterWithProvider` allows custom config for sequential tests
+   - `oteltest.SetupTesterWithProvider` allows custom config for sequential tests
 
 2. **Deprecated `Tracer` variable**: Kept for backward compatibility but not recommended. Will be removed in v2.0. Users should migrate to `CreateSpan` API.
 

@@ -9,6 +9,7 @@ import (
 	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/suite"
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/go-weka-observability/instrumentation/oteltest"
 	"github.com/weka/go-weka-observability/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -42,8 +43,8 @@ func (s *SpanLoggerAPISuite) SetupTest() {
 	})
 	s.ctx = logger.ContextWithLogr(s.ctx, logr)
 
-	// Use SetupOTELTesterWithProvider for testify suite (sequential tests)
-	s.ctx, s.recorder = instrumentation.SetupOTELTesterWithProvider(s.ctx)
+	// Use oteltest.SetupTesterWithProvider for testify suite (sequential tests)
+	s.ctx, s.recorder = oteltest.SetupTesterWithProvider(s.ctx)
 }
 
 func (s *SpanLoggerAPISuite) TearDownTest() {
@@ -836,7 +837,7 @@ func (s *SpanLoggerAPISuite) TestConvenienceFunctions_AllSpanKinds() {
 			if err := s.recorder.Shutdown(context.Background()); err != nil {
 				s.T().Logf("Failed to shutdown recorder: %v", err)
 			}
-			s.ctx, s.recorder = instrumentation.SetupOTELTesterWithProvider(s.ctx)
+			s.ctx, s.recorder = oteltest.SetupTesterWithProvider(s.ctx)
 
 			_, spanLogger := tc.createFunc(s.ctx, tc.name)
 			spanLogger.End()
