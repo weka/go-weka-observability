@@ -1,0 +1,211 @@
+# Welcome to the golangci-lint configuration file!
+#
+# please read about the importance of linting here:
+#     https://www.notion.so/wekaio/Linting-our-code-Coding-standards-and-Rules-to-reduce-complexity-1a330b0d101c80dcad2deb9e8fbdbd59?pvs=4
+#
+# and setup your IDE to apply those rules automatically with this doc:
+#     https://www.notion.so/wekaio/Go-IDE-setup-formatters-linters-for-go-language-19730b0d101c804390adfd4eee4b2678?pvs=4
+#
+
+version: "2"
+output:
+  formats:
+    text:
+      path: stdout
+linters:
+  enable:
+    # Bug-catching linters
+
+    # Standard Go type checks
+
+    - govet # Reports suspicious constructs - Primarily focuses on correctness and finding potential bugs
+
+    # go vet on steroids - Includes a wide range of checks that go beyond what govet covers.
+    # the linters stylecheck, gosimple, and staticcheck has been merged inside the staticcheck.
+    - staticcheck
+    - gocritic # Detects various code issues (replaces some functionality of deprecated linters)
+    - asasalint # Check for pass []any as any in variadic func(...any)
+    - asciicheck # Check for non-ASCII characters in Go source code
+    - bidichk # Check for non-ASCII characters in Go source code
+    - forcetypeassert # Check for forced type assertions
+    - gocheckcompilerdirectives # Check that no compiler directives are used
+    - prealloc # Check for slice allocations inside loops
+    - predeclared # Check for redeclared predeclared identifiers
+    - tagliatelle # Checks for the correctness, consistency and readability of struct tags
+
+    - copyloopvar # Detects common mistakes when copying a loop variable to a closure
+    - bodyclose # Check whether HTTP response bodies are closed
+    - durationcheck # Check for two durations multiplied together
+    - exhaustive # Check exhaustiveness of enum switch statements.
+    - gosec # Inspects source code for security problems by scanning the Go AST
+    - intrange # Check for integer ranges that can be simplified
+    - loggercheck # Check for common mistakes when using the log package
+    - noctx # Finds sending HTTP request without context.Context.
+    - spancheck # Checks for mistakes with OpenTelemetry/Census spans
+
+    - err113 # Enforce standard error handling practices
+    - errcheck # Detect unchecked errors
+    - errchkjson # some JSON-specific checks
+    - errname # Checks `Err-` prefix for var and `-Error` suffix for error type.
+    - errorlint # Suggests to use `%w` for error-wrapping.
+    - nilerr # Check for error return values that are not checked
+    - nilnil # Check for functions that return multiple nil values
+
+    - cyclop # Check cyclomatic complexity
+    - gocognit # [Style] Detects high cognitive complexity functions
+    - maintidx # [Style] Check for maintenance indexes
+    - revive # General purpose linter - enforces coding standards and best practices
+    - dupl # Detect duplicate code
+    - funlen # Check for long functions
+    - funcorder # Check for function order: public functions should be above private functions
+    - decorder # Check declaration order and count of types, constants, variables and functions.
+    - gochecknoglobals # Check that no globals are used
+    - gochecknoinits # Check that no init functions are used
+    - goconst # Detect repeated values that can be made constants
+    - grouper # Organize and group related code elements together - constants, variables, and functions, are grouped together in a logical and readable manner
+    - inamedparam # [Style] Check for named parameters in function calls
+    - misspell # Correct commonly misspelled English words in comments
+    - mnd # Check for magic numbers
+    - nakedret # Check for naked returns
+    - nlreturn # Check for newlines before return statements
+    - tagalign # Check that struct tags are aligned
+    - unconvert # Detect unnecessary type conversions
+    - whitespace # Check for leading and trailing whitespace
+    - usestdlibvars # Check for the use of variables in the standard library
+    - nolintlint # Check for nolint directives
+
+    - testifylint # Check for common mistakes when using the testify package
+    - tparallel # Detects inappropriate use of t.Parallel()
+
+    - perfsprint # Check for performance issues with fmt.Sprint
+    - wastedassign # Check for wasted assignments
+  settings:
+    grouper:
+      # "one and only one … block" rules ─ catch scattering
+      import-require-single-import: true
+      const-require-single-const: true
+      var-require-single-var: true
+      type-require-single-type: true
+
+      # "must be wrapped in ()" rules ─ turn OFF to avoid gofumpt clash
+      import-require-grouping: false
+      const-require-grouping: false
+      var-require-grouping: false
+      type-require-grouping: false
+    decorder:
+      disable-dec-order-check: false # check order of declarations
+      disable-dec-num-check: false # one const/var/type group per file
+      disable-init-func-first-check: false # init() must be first func
+      dec-order:
+        - const
+        - var
+        - type
+        - func
+    cyclop:
+      max-complexity: 10
+      package-average: 8
+    gocognit:
+      min-complexity: 15
+    govet:
+      enable-all: true
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+      disabled-tags:
+        - experimental
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    revive:
+      confidence: 0.8
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: filename-format
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+          mapstructure: snake
+          yaml: snake
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - nolintlint
+        text: directive `// nolint(:?.*)` should be written without leading space as `//nolint(:?.*)`
+      # callerMarshalMutex is a mutex protecting global zerolog.CallerMarshalFunc modification
+      # This is a legitimate use case for thread-safe global state management
+      - linters:
+          - gochecknoglobals
+        text: callerMarshalMutex
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - goimports
+    - gci
+    - golines
+    - gofmt
+    - gofumpt
+  settings:
+    gofmt:
+      simplify: true
+      rewrite-rules:
+        - pattern: "interface{}"
+          replacement: "any"
+        - pattern: "a[b:len(a)]"
+          replacement: "a[b:]"
+    golines:
+      max-len: 120
+      tab-len: 4
+      shorten-comments: true
+      reformat-tags: true
+      chain-split-dots: true
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/weka/go-weka-observability)
+        - prefix(github.com/weka)
+      no-inline-comments: false
+      no-prefix-comments: false
+    gofumpt:
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

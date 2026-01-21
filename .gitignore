@@ -9,3 +9,10 @@
 /.vscode
 .DS_Store
 test-logs/
+
+# Local tooling binaries
+.bin/
+
+# Coverage reports
+coverage.out
+coverage.html

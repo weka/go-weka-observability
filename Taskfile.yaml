@@ -1,0 +1,251 @@
+version: "3"
+
+vars:
+  GOLANGCI_LINT_VERSION: v2.8.0
+  LS_LINT_VERSION: v2.3.1
+  BIN_DIR: "{{.ROOT_DIR}}/.bin"
+  ROOT_DIR:
+    sh: pwd
+  GOLANGCI_LINT: "{{.BIN_DIR}}/golangci-lint-{{.GOLANGCI_LINT_VERSION}}"
+  LS_LINT: "{{.BIN_DIR}}/ls-lint-{{.LS_LINT_VERSION}}"
+  CURRENT_OS:
+    sh: uname | tr '[:upper:]' '[:lower:]'
+  CURRENT_ARCH:
+    sh: uname -m
+
+tasks:
+  default:
+    desc: Run full quality pipeline - tidy, lint with fixes, test
+    deps: [tidy, lintwithfix, test]
+
+  ensure-bin-dir:
+    desc: Create bin directory if it doesn't exist
+    internal: true
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+    status:
+      - test -d {{.BIN_DIR}}
+
+  install-golangci-lint:
+    desc: Install golangci-lint
+    internal: true
+    deps: [ensure-bin-dir]
+    cmds:
+      - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b {{.BIN_DIR}} {{.GOLANGCI_LINT_VERSION}}
+      - mv {{.BIN_DIR}}/golangci-lint {{.GOLANGCI_LINT}}
+    status:
+      - test -f {{.GOLANGCI_LINT}}
+
+  install-goimports:
+    desc: Install goimports
+    internal: true
+    cmds:
+      - go install golang.org/x/tools/cmd/goimports@latest
+    status:
+      - command -v goimports
+
+  install-gci:
+    desc: Install gci
+    internal: true
+    cmds:
+      - go install github.com/daixiang0/gci@latest
+    status:
+      - command -v gci
+
+  download-ls-lint:
+    desc: Download ls-lint binary
+    internal: true
+    deps: [ensure-bin-dir]
+    cmds:
+      - curl -sL -o {{.LS_LINT}} https://github.com/loeffel-io/ls-lint/releases/download/{{.LS_LINT_VERSION}}/ls-lint-{{.CURRENT_OS}}-amd64
+      - chmod +x {{.LS_LINT}}
+    status:
+      - test -f "{{.LS_LINT}}"
+
+  install-pre-commit:
+    desc: Install pre-commit
+    internal: true
+    cmds:
+      - pip install pre-commit
+    status:
+      - command -v pre-commit
+
+  setup-hooks:
+    desc: Setup git hooks with pre-commit
+    deps: [install-pre-commit]
+    cmds:
+      - pre-commit install
+
+  # ============================================================================
+  # Code Quality
+  # ============================================================================
+
+  format-imports:
+    desc: Format and organize imports with gci
+    deps: [install-gci]
+    cmds:
+      - |
+        gci write --skip-generated \
+          -s standard \
+          -s default \
+          -s "prefix(github.com/weka/go-weka-observability)" \
+          -s "prefix(github.com/weka)" \
+          .
+
+  imports:
+    desc: Organize imports
+    deps: [install-goimports]
+    cmds:
+      - goimports -w .
+
+  tidy:
+    desc: Tidy Go modules
+    cmds:
+      - go mod tidy -v
+
+  fmt:
+    desc: Format Go code using golangci-lint formatters
+    deps: [install-golangci-lint]
+    cmds:
+      - "{{.GOLANGCI_LINT}} fmt"
+
+  fmt-changed:
+    desc: Format only changed Go files (committed + uncommitted from origin/main)
+    deps: [install-golangci-lint]
+    cmds:
+      - |
+        # Get committed changes from origin/main
+        COMMITTED=$(git diff --name-only --diff-filter=ACMRT origin/main...HEAD 2>/dev/null | grep '\.go$' || true)
+        # Get uncommitted changes (staged + unstaged)
+        UNCOMMITTED=$(git diff --name-only --diff-filter=ACMRT HEAD 2>/dev/null | grep '\.go$' || true)
+        STAGED=$(git diff --name-only --cached --diff-filter=ACMRT 2>/dev/null | grep '\.go$' || true)
+        # Combine and deduplicate
+        CHANGED_FILES=$(echo -e "${COMMITTED}\n${UNCOMMITTED}\n${STAGED}" | sort -u | grep -v '^$' || true)
+        if [ -n "$CHANGED_FILES" ]; then
+          echo "Formatting changed files..."
+          echo "$CHANGED_FILES" | xargs {{.GOLANGCI_LINT}} fmt
+          echo "--> Formatted changed files successfully"
+        else
+          echo "No Go files changed from origin/main"
+        fi
+
+  ls-lint:
+    desc: Run ls-lint to lint folder and file names
+    deps: [download-ls-lint]
+    cmds:
+      - "{{.LS_LINT}}"
+
+  ls-lint-files:
+    desc: Run ls-lint on specific files
+    deps: [download-ls-lint]
+    cmds:
+      - "{{.LS_LINT}} {{.CLI_ARGS}}"
+
+  fmt-files:
+    desc: Format specific Go files
+    deps: [install-golangci-lint]
+    cmds:
+      - "{{.GOLANGCI_LINT}} fmt {{.CLI_ARGS}}"
+
+  vet:
+    desc: Run Go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Lint the code (read-only, no fixes)
+    deps: [vet, install-golangci-lint]
+    cmds:
+      - "{{.GOLANGCI_LINT}} run"
+
+  lintwithfix:
+    desc: PRIMARY - Format, vet, and lint with auto-fix
+    deps: [fmt, vet]
+    cmds:
+      - "{{.GOLANGCI_LINT}} run --fix"
+
+  lintfix-no-output:
+    desc: Lint with fix, suppress output (for pre-commit hooks)
+    deps: [fmt, vet]
+    cmds:
+      - "{{.GOLANGCI_LINT}} run --fix 2>&1 >/dev/null || true"
+
+  lint-new:
+    desc: Lint only files changed since last commit
+    deps: [install-golangci-lint]
+    cmds:
+      - "{{.GOLANGCI_LINT}} run --new"
+
+  lint-new-from-main:
+    desc: Lint only files changed since main branch (for PRs)
+    deps: [install-golangci-lint]
+    cmds:
+      - "{{.GOLANGCI_LINT}} run --new-from-rev=origin/main"
+
+  # ============================================================================
+  # Testing
+  # ============================================================================
+
+  test:
+    desc: Run tests with race detector
+    deps: [vet]
+    cmds:
+      - go test -race ./...
+
+  test-coverage:
+    desc: Run tests and generate coverage report
+    cmds:
+      - go test -race -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+    generates:
+      - coverage.out
+      - coverage.html
+
+  test-verbose:
+    desc: Run tests with verbose output
+    cmds:
+      - go test -race -v ./...
+
+  # ============================================================================
+  # Build & Maintenance
+  # ============================================================================
+
+  build:
+    desc: Compile the library
+    cmds:
+      - go build ./...
+
+  clean:
+    desc: Clean build artifacts and tool binaries
+    cmds:
+      - rm -rf {{.BIN_DIR}}
+      - rm -f coverage.out coverage.html
+
+  # ============================================================================
+  # Examples
+  # ============================================================================
+
+  run-example-basic:
+    desc: Run basic example
+    cmds:
+      - go run examples/basic/main.go
+
+  run-example-http-tracing:
+    desc: Run HTTP tracing example
+    cmds:
+      - go run examples/http_tracing/main.go
+
+  run-example-logger-init:
+    desc: Run logger initialization example
+    cmds:
+      - go run examples/logger_initialization.go
+
+  run-example-logger-simple:
+    desc: Run simple logger example
+    cmds:
+      - go run examples/test_logger_simple.go
+
+  run-example-logspan:
+    desc: Run logspan example
+    cmds:
+      - go run examples/test_logspan.go
