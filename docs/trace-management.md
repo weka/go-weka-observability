@@ -18,7 +18,7 @@
 
 ### Core Types
 
-- **`GetTracer(ctx)`** - Public API for smart tracer resolution that orchestrates the three-tier lookup strategy. Used internally by all span creation functions (`CreateLogSpan`, `CreateRootLogSpan`, `CreateSpanWithOptions`, etc.). Can be called directly for advanced use cases requiring raw tracer access.
+- **`GetTracer(ctx)`** - Public API for smart tracer resolution that orchestrates the three-tier lookup strategy. Used internally by all span creation functions (`CreateLogSpan`, `CreateRootLogSpan`, `CreateLogSpanWithOptions`, etc.). Can be called directly for advanced use cases requiring raw tracer access.
 
 - **`ContextWithTracer(ctx, tracer)`** - Public API for context-based tracer injection. Primary use case: parallel test isolation. Stores tracer in context using unexported `tracerKey{}` type.
 
@@ -152,7 +152,7 @@ _, span2 := instrumentation.CreateLogSpan(ctx, "op2")
 - `CreateRootLogSpan(ctx, name, kv...)` - Creates root spans using resolved tracer
 - `CreateLogSpanWithOptions(ctx, name, opts...)` - Type-safe child span creation
 - `CreateRootLogSpanWithOptions(ctx, name, opts...)` - Type-safe root span creation
-- `CreateServerSpan`, `CreateClientSpan`, `CreateProducerSpan`, `CreateConsumerSpan` - Convenience functions with pre-configured span kinds
+- `CreateServerLogSpan`, `CreateClientLogSpan`, `CreateProducerLogSpan`, `CreateConsumerLogSpan` - Convenience functions with pre-configured span kinds
 - `GetSpanForContext()` (deprecated) - Backward compatibility wrapper
 - **Direct usage**: Advanced users can call `GetTracer(ctx)` directly when they need raw tracer access without SpanLogger integration
 
@@ -170,7 +170,7 @@ _, span2 := instrumentation.CreateLogSpan(ctx, "op2")
 
 ### Overview
 
-`GetTracer(ctx)` is the public API for accessing the smart tracer resolution system. While most application code should use the high-level SpanLogger API (`CreateLogSpan`, `CreateSpanWithOptions`, etc.), direct tracer access is available for advanced scenarios.
+`GetTracer(ctx)` is the public API for accessing the smart tracer resolution system. While most application code should use the high-level SpanLogger API (`CreateLogSpan`, `CreateLogSpanWithOptions`, etc.), direct tracer access is available for advanced scenarios.
 
 ### When to Use GetTracer()
 
@@ -181,7 +181,7 @@ _, span2 := instrumentation.CreateLogSpan(ctx, "op2")
 - Migrating legacy code that used the deprecated `Tracer` variable
 
 **Don't use GetTracer() for**:
-- Regular application tracing (use `CreateLogSpan`, `CreateSpanWithOptions`, etc.)
+- Regular application tracing (use `CreateLogSpan`, `CreateLogSpanWithOptions`, etc.)
 - Any scenario where SpanLogger integration is beneficial (structured logging + tracing)
 - Simple span creation with attributes/span kinds (use convenience functions)
 
@@ -699,7 +699,7 @@ func TestFeature(t *testing.T) {
    - Most tests don't need different propagator configs
    - `oteltest.SetupTesterWithProvider` allows custom config for sequential tests
 
-2. **Deprecated `Tracer` variable**: Kept for backward compatibility but not recommended. Will be removed in v2.0. Users should migrate to `CreateSpan` API.
+2. **Deprecated `Tracer` variable**: Kept for backward compatibility but not recommended. Will be removed in v2.0. Users should migrate to `CreateLogSpan` API.
 
 3. **Context value overhead**: Using `ContextWithTracer` adds ~48 bytes per context. Negligible for most use cases but could matter in extremely memory-constrained environments with millions of contexts.
 

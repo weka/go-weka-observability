@@ -67,7 +67,7 @@ func main() {
 // Section 1: CreateLogSpan() - Creating Owned Spans
 // ============================================================================
 //
-// Use CreateSpan when:
+// Use CreateLogSpan when:
 // - You're creating a new operation that should be a child of the current span
 // - You need to track the start and end of an operation
 // - You want to add operation-specific logging and attributes
@@ -195,7 +195,7 @@ func formatOutput(ctx context.Context, result string) {
 // Section 3: CreateRootLogSpan() - Breaking Parent Chain
 // ============================================================================
 //
-// Use CreateRootSpan when:
+// Use CreateRootLogSpan when:
 // - Starting a new independent trace (new trace ID)
 // - Background jobs that shouldn't be part of original request trace
 // - Async operations that should be tracked separately
@@ -225,7 +225,7 @@ func demonstrateCreateRootLogSpan(ctx context.Context) {
 
 // Background job that creates its own independent trace
 func backgroundJob(ctx context.Context) {
-	// CreateRootSpan breaks the parent chain - NEW trace ID!
+	// CreateRootLogSpan breaks the parent chain - NEW trace ID!
 	ctx, logger := instrumentation.CreateRootLogSpan(ctx, "background_job", "job_id", "job-456")
 	defer logger.End()
 

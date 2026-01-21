@@ -63,7 +63,7 @@ func (s *SpanLoggerAPISuite) resetLogOutput() {
 	s.logOutput.Reset()
 }
 
-// TestCreateLogSpan_CreatesOwnedSpan verifies CreateSpan returns SpanLogger with End() method
+// TestCreateLogSpan_CreatesOwnedSpan verifies CreateLogSpan returns SpanLogger with End() method
 func (s *SpanLoggerAPISuite) TestCreateLogSpan_CreatesOwnedSpan() {
 	ctx, spanLogger := instrumentation.CreateLogSpan(s.ctx, "test_operation", "key1", "value1")
 
@@ -80,7 +80,7 @@ func (s *SpanLoggerAPISuite) TestCreateLogSpan_CreatesOwnedSpan() {
 	s.NotEmpty(spans[0].Attributes())
 }
 
-// TestCreateLogSpan_WithoutKeysAndValues verifies CreateSpan works without optional params
+// TestCreateLogSpan_WithoutKeysAndValues verifies CreateLogSpan works without optional params
 func (s *SpanLoggerAPISuite) TestCreateLogSpan_WithoutKeysAndValues() {
 	ctx, spanLogger := instrumentation.CreateLogSpan(s.ctx, "simple_operation")
 
@@ -543,10 +543,10 @@ func someRecoverableOperation() error { return nil }
 func someCriticalOperation() error    { return nil }
 
 // ==================================================================================================
-// Tests for new type-safe API: CreateSpanWithOptions, CreateRootSpanWithOptions, convenience functions
+// Tests for new type-safe API: CreateLogSpanWithOptions, CreateRootLogSpanWithOptions, convenience functions
 // ==================================================================================================
 
-// TestCreateLogSpanWithOptions_WithSpanKind verifies CreateSpanWithOptions sets span kind correctly
+// TestCreateLogSpanWithOptions_WithSpanKind verifies CreateLogSpanWithOptions sets span kind correctly
 func (s *SpanLoggerAPISuite) TestCreateLogSpanWithOptions_WithSpanKind() {
 	ctx, spanLogger := instrumentation.CreateLogSpanWithOptions(s.ctx, "http.request",
 		trace.WithSpanKind(trace.SpanKindServer),
@@ -610,7 +610,7 @@ func (s *SpanLoggerAPISuite) TestCreateLogSpanWithOptions_MultipleOptions() {
 	s.Contains(attrs, attribute.String("db.operation", "SELECT"))
 }
 
-// TestCreateLogSpanWithOptions_NoOptions verifies CreateSpanWithOptions works without options
+// TestCreateLogSpanWithOptions_NoOptions verifies CreateLogSpanWithOptions works without options
 func (s *SpanLoggerAPISuite) TestCreateLogSpanWithOptions_NoOptions() {
 	ctx, spanLogger := instrumentation.CreateLogSpanWithOptions(s.ctx, "simple.operation")
 

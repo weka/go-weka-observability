@@ -30,8 +30,8 @@
 //
 // Combined logging and tracing:
 //
-//	// CreateSpan creates a span and returns a logger automatically enriched with trace IDs
-//	ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation-name", "user_id", 123)
+//	// CreateLogSpan creates a span and returns a logger automatically enriched with trace IDs
+//	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation-name", "user_id", 123)
 //	defer spanLogger.End()
 //
 //	spanLogger.Info("Processing request")
@@ -151,7 +151,7 @@
 //	    ctx, recorder := instrumentation.SetupOTELTester(ctx)
 //	    defer recorder.Shutdown(context.Background())
 //
-//	    ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+//	    ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 //	    defer logger.End()
 //
 //	    // Verify spans
@@ -167,7 +167,7 @@
 //	    ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
 //	    defer recorder.Shutdown(context.Background())
 //
-//	    ctx, logger := instrumentation.CreateSpan(ctx, "operation")
+//	    ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
 //	    defer logger.End()
 //	}
 //
@@ -255,11 +255,11 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 //
 // This function sets the global TracerProvider via otel.SetTracerProvider(), which becomes
 // the source for all tracers in your application. You do NOT need to manually manage tracers
-// or store them in context - CreateSpan/CreateRootSpan automatically resolve the correct tracer
+// or store them in context - CreateLogSpan/CreateRootLogSpan automatically resolve the correct tracer
 // from the provider.
 //
 //	SetupOTelSDKWithOptions() → otel.SetTracerProvider(provider)
-//	CreateSpan(ctx, "op") → GetTracer(ctx) → otel.GetTracerProvider().Tracer(...)
+//	CreateLogSpan(ctx, "op") → GetTracer(ctx) → otel.GetTracerProvider().Tracer(...)
 //
 // The tracer resolution uses smart caching with provider change detection, so it's both
 // performant (cached reads) and test-friendly (detects provider swaps automatically).
@@ -269,20 +269,20 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 // IMPORTANT: The logger parameter is used ONLY for logging during SDK initialization.
 // It is NOT automatically stored in context.
 //
-// You must call logger.ContextWithLogr() BEFORE calling CreateSpan, but the order
+// You must call logger.ContextWithLogr() BEFORE calling CreateLogSpan, but the order
 // between ContextWithLogr() and SetupOTelSDKWithOptions() does NOT matter.
 //
 //	Recommended pattern (SetupOTelSDK first):
 //	  1. CreateLogger() - Creates logger instance
 //	  2. SetupOTelSDKWithOptions() - Sets TracerProvider via otel.SetTracerProvider()
-//	  3. ContextWithLogr() - Stores logger for CreateSpan to retrieve
-//	  4. CreateSpan() - Retrieves logger from context, tracer from provider
+//	  3. ContextWithLogr() - Stores logger for CreateLogSpan to retrieve
+//	  4. CreateLogSpan() - Retrieves logger from context, tracer from provider
 //
 //	Alternative pattern (ContextWithLogr first):
 //	  1. CreateLogger() - Creates logger instance
-//	  2. ContextWithLogr() - Stores logger for CreateSpan to retrieve
+//	  2. ContextWithLogr() - Stores logger for CreateLogSpan to retrieve
 //	  3. SetupOTelSDKWithOptions() - Sets TracerProvider via otel.SetTracerProvider()
-//	  4. CreateSpan() - Retrieves logger from context, tracer from provider
+//	  4. CreateLogSpan() - Retrieves logger from context, tracer from provider
 //
 // # Complete Example
 //
@@ -304,11 +304,11 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 //	}
 //	defer shutdown(ctx)
 //
-//	// Store logger in context for CreateSpan to use (order doesn't matter vs SetupOTelSDK)
+//	// Store logger in context for CreateLogSpan to use (order doesn't matter vs SetupOTelSDK)
 //	ctx = logger.ContextWithLogr(ctx, logr)
 //
-//	// CreateSpan automatically gets tracer from provider - no manual tracer management needed
-//	ctx, spanLogger := instrumentation.CreateSpan(ctx, "operation", "user_id", 123)
+//	// CreateLogSpan automatically gets tracer from provider - no manual tracer management needed
+//	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation", "user_id", 123)
 //	defer spanLogger.End()
 //	spanLogger.Info("Processing request")
 func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, opts ...OTelOption) (shutdown func(context.Context) error, err error) {

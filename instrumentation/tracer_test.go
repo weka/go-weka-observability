@@ -137,7 +137,7 @@ func TestConcurrentAccess(t *testing.T) {
 }
 
 // TestContextOverrideWithRootSpan verifies context tracer injection works
-// with CreateRootSpan as well.
+// with CreateRootLogSpan as well.
 func TestContextOverrideWithRootSpan(t *testing.T) {
 	ctx := context.Background()
 

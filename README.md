@@ -25,7 +25,7 @@ shutdownFn, err := instrumentation.SetupOTelSDK(ctx, name, version, logger)
 // NEW (recommended - SetupOTelSDK first, then ContextWithLogr)
 logr := logger.CreateLogger(logger.WithInfoLevel())
 shutdownFn, err := instrumentation.SetupOTelSDKWithOptions(ctx, name, version, logr)
-ctx = logger.ContextWithLogr(ctx, logr)  // Must be before CreateSpan, order with SetupOTelSDK doesn't matter
+ctx = logger.ContextWithLogr(ctx, logr)  // Must be before CreateLogSpan, order with SetupOTelSDK doesn't matter
 ```
 
 ### Span Creation (SpanLogger API)
@@ -70,7 +70,7 @@ defer logger.End()
 
 📖 **[Complete Migration Guide](docs/logger-initialization-migration.md)** - Covers all migration scenarios including:
 - `GetLoggerForContext` → `CreateLogger` + `ContextWithLogr` migration
-- `GetLogSpan` → `CreateSpan`/`CurrentSpanLogger`/`CreateRootSpan` migration (see [examples](examples/))
+- `GetLogSpan` → `CreateLogSpan`/`CurrentSpanLogger`/`CreateRootLogSpan` migration (see [examples](examples/))
 - `zerologr.New()` pattern migration
 - Custom formatting and file logging
 - `LogrFromContextOrDefault` for flexible logger retrieval
@@ -148,13 +148,13 @@ ctx = logger.ContextWithLogr(ctx, logr)
 // Create traced operations with automatic logging
 // Multiple API functions for different span ownership patterns:
 
-// 1. CreateSpan - Create child span with key-value pairs (simple, recommended for most cases)
+// 1. CreateLogSpan - Create child span with key-value pairs (simple, recommended for most cases)
 ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation-name", "key", "value")
 defer spanLogger.End() // Required!
 
 spanLogger.Info("Operation in progress")
 
-// 2. CreateSpanWithOptions - Type-safe span creation (RECOMMENDED: use WithValues for attributes)
+// 2. CreateLogSpanWithOptions - Type-safe span creation (RECOMMENDED: use WithValues for attributes)
 import "go.opentelemetry.io/otel/trace"
 
 ctx, dbLogger := instrumentation.CreateLogSpanWithOptions(ctx, "database-query",
@@ -183,7 +183,7 @@ httpLogger.Info("Making HTTP request")
 view := instrumentation.CurrentSpanLogger(ctx)
 view.Info("Helper function logging") // Cannot call view.End() - compile error!
 
-// 5. CreateRootSpan - Start independent trace (new trace ID)
+// 5. CreateRootLogSpan - Start independent trace (new trace ID)
 ctx, rootLogger := instrumentation.CreateRootLogSpan(ctx, "background-job", "job_id", "123")
 defer rootLogger.End() // Required!
 
