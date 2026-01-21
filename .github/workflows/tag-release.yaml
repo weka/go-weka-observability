@@ -21,16 +21,22 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: "./go.mod"
+          cache: true
           cache-dependency-path: "./go.sum"
 
+      - name: Install Task runner
+        uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install dependencies
-        run: make tidy
+        run: task tidy
 
       - name: Run linter
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.5
-          only-new-issues: true
+          version: v2.8.0
+          args: --timeout=5m --config=.golangci.yaml
 
       - name: Run tests
         run: |
