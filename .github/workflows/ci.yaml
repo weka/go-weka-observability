@@ -1,40 +1,114 @@
 name: CI
 
 on:
+  pull_request:
   push:
     branches:
-      - main
-  pull_request:
-    branches:
-      - main
+      - "main"
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+  issues: write
 
 jobs:
-  build:
+  lint:
+    name: lint
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version-file: "./go.mod"
+          cache: true
+          cache-dependency-path: "./go.sum"
 
-      - name: Compile
-        run: make build
+      - name: Install Task runner
+        uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Vet
-        run: make vet
+      - name: Install dependencies
+        run: task tidy
 
-      - name: Prepare lint workspace
-        run: go clean -modcache
+      - name: Compile & vet project
+        run: task vet
 
-      - name: Install & Run linter
+      - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.5
-          only-new-issues: true
+          version: v2.8.0
+          args: --timeout=5m --config=.golangci.yaml --verbose --show-stats
 
-      - name: Test
-        run: make test
+  lint-file-names:
+    name: lint-file-names
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ls-lint/action@v2.3.1
+        with:
+          config: .ls-lint.yml
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "./go.mod"
+          cache: true
+          cache-dependency-path: "./go.sum"
+
+      - name: Install Task runner
+        uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: task tidy
+
+      - name: Install go-junit-report
+        run: go install github.com/jstemmer/go-junit-report/v2@latest
+
+      - name: Compile & vet project
+        run: task vet
+
+      - name: Test with Go
+        run: |
+          go test -v -race -cover -coverprofile=coverage.txt ./... 2>&1 | tee >(go-junit-report > test-results.xml)
+
+      - name: Test Report
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          name: "Go Tests"
+          path: "test-results.xml"
+          reporter: java-junit
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage
+          path: ./coverage.txt
+
+  code-coverage:
+    name: "Code coverage report"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: coverage
+
+      - uses: fgrosse/go-coverage-report@v1.2.0
+        continue-on-error: true
+        with:
+          coverage-artifact-name: "coverage"
+          coverage-file-name: "coverage.txt"
