@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "ai-coding-rules:go-linter-driven-development": true
+  },
+  "extraKnownMarketplaces": {
+    "ai-coding-rules": {
+      "source": {
+        "source": "github",
+        "repo": "buzzdan/ai-coding-rules"
+      }
+    }
+  }
+}

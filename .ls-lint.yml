@@ -1,0 +1,17 @@
+ls:
+  # Enforce lowercase letters and digits (flatcase) for directories and files
+  # Inspired by Go Style Guide. Read more in this blog post:
+  # https://www.mohitkhare.com/blog/go-naming-conventions/
+  "{internal,instrumentation,logger}":
+    .go: snake_case # recommendation is flatcase but there are exceptions
+    .dir: regex:^[a-z0-9]+$ # flatcase
+
+  examples:
+    .go: snake_case
+    .dir: snake_case # examples can use snake_case for readability
+
+ignore:
+  - .git
+  - "**/.*"
+  - docs
+  - .github

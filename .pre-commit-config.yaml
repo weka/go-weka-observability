@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: golangci-lint fmt
+        name: Run golangci-lint formatters
+        description: Format Go code using golangci-lint fmt (as configured in .golangci.yaml)
+        entry: task
+        args: [fmt]
+        language: golang
+        pass_filenames: false
+        types: [go]
+      - id: golangci-lint-autofix
+        name: Run golangci-lint autofix
+        entry: task
+        args: [lintfix-no-output]
+        language: golang
+        pass_filenames: false
+        types: [go]

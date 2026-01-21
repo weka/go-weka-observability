@@ -1,3 +1,22 @@
+# =============================================================================
+# DEPRECATED: Use Taskfile.yaml instead
+# =============================================================================
+# This Makefile is kept for backward compatibility but is deprecated.
+# Please use the Taskfile.yaml with `task` command instead:
+#
+#   brew install go-task/tap/go-task  # Install task runner
+#   task --list                       # List available tasks
+#   task lintwithfix                  # Primary lint command (replaces make lint)
+#   task test                         # Run tests
+#   task                              # Run full quality pipeline
+#
+# The Taskfile provides:
+#   - Local golangci-lint installation (no global install needed)
+#   - Incremental linting (lint-new, lint-new-from-main)
+#   - Better formatting with golangci-lint v2
+#   - Coverage reports
+# =============================================================================
+
 .PHONY: build test lint vet run-example-logger-init run-example-basic run-example-http-tracing run-example-logger-simple run-example-logspan
 
 tidy:
