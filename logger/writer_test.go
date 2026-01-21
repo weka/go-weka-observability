@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weka/go-weka-observability/logger"
 )
 
@@ -163,7 +164,7 @@ func TestLevelComparisonBoundary(t *testing.T) {
 		}
 
 		for _, level := range belowWarn {
-			assert.True(t, level < zerolog.WarnLevel,
+			assert.Less(t, level, zerolog.WarnLevel,
 				"Expected %s (%d) < WarnLevel (%d)", level, level, zerolog.WarnLevel)
 		}
 	})
@@ -178,7 +179,7 @@ func TestLevelComparisonBoundary(t *testing.T) {
 		}
 
 		for _, level := range atOrAboveWarn {
-			assert.True(t, level >= zerolog.WarnLevel,
+			assert.GreaterOrEqual(t, level, zerolog.WarnLevel,
 				"Expected %s (%d) >= WarnLevel (%d)", level, level, zerolog.WarnLevel)
 		}
 	})

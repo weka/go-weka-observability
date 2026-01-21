@@ -228,7 +228,13 @@ const (
 //	}
 //	config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
 //	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "my-service", "v1.0.0", logr, config, "key", "value")
-func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
+func SetupOTelSDKFrom(
+	ctx context.Context,
+	serviceName, serviceVersion string,
+	logger logr.Logger,
+	config OTelConfig,
+	keysAndValues ...any,
+) (shutdown func(context.Context) error, err error) {
 	logger.
 		V(VerbosityLevelDebug).
 		WithCallDepth(CallDepthOffset).
@@ -311,7 +317,12 @@ func SetupOTelSDKFrom(ctx context.Context, serviceName, serviceVersion string, l
 //	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation", "user_id", 123)
 //	defer spanLogger.End()
 //	spanLogger.Info("Processing request")
-func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, opts ...OTelOption) (shutdown func(context.Context) error, err error) {
+func SetupOTelSDKWithOptions(
+	ctx context.Context,
+	serviceName, serviceVersion string,
+	logger logr.Logger,
+	opts ...OTelOption,
+) (shutdown func(context.Context) error, err error) {
 	logger.
 		V(VerbosityLevelDebug).
 		WithCallDepth(CallDepthOffset).
@@ -333,13 +344,21 @@ func SetupOTelSDKWithOptions(ctx context.Context, serviceName, serviceVersion st
 
 // setupOTelSDKInternal contains the actual OpenTelemetry SDK initialization logic.
 // This is extracted to be reused by both SetupOTelSDK and SetupOTelSDKWithOptions.
-func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, config OTelConfig) (shutdown func(context.Context) error, err error) {
+func setupOTelSDKInternal(
+	ctx context.Context,
+	serviceName, serviceVersion string,
+	logger logr.Logger,
+	config OTelConfig,
+) (shutdown func(context.Context) error, err error) {
 	// Initialize tracer cache (triggers getTracer on first use)
 	// The public Tracer variable is kept in sync automatically by GetTracer()
 	// for backward compatibility
 
 	if config.Endpoint == "" {
-		logger.V(VerbosityLevelInfo).WithCallDepth(CallDepthOffset).Info("No OTLP endpoint configured - traces will not be exported")
+		logger.V(VerbosityLevelInfo).
+			WithCallDepth(CallDepthOffset).
+			Info("No OTLP endpoint configured - traces will not be exported")
+
 		return func(ctx context.Context) error {
 			return nil
 		}, nil
@@ -355,9 +374,16 @@ func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion strin
 	otel.SetTextMapPropagator(prop)
 
 	// Set up trace provider.
-	tracerProvider, err := newTraceProvider(ctx, serviceName, serviceVersion, config.Endpoint, logger, config.ResourceAttributes...)
+	tracerProvider, err := newTraceProvider(
+		ctx,
+		serviceName,
+		serviceVersion,
+		config.Endpoint,
+		logger,
+		config.ResourceAttributes...)
 	if err != nil {
 		handleErr(err)
+
 		return shutdown, err
 	}
 	otel.SetTracerProvider(tracerProvider) // <-- Magic unleashed! 🎉
@@ -367,11 +393,16 @@ func setupOTelSDKInternal(ctx context.Context, serviceName, serviceVersion strin
 		if err != nil {
 			logger.Error(err, "failed to flush traces")
 		}
+
 		return tracerProvider.Shutdown(ctx)
 	}, err
 }
 
-func newResource(ctx context.Context, serviceName, serviceVersion string, keysAndValues ...any) (*resource.Resource, error) {
+func newResource(
+	ctx context.Context,
+	serviceName, serviceVersion string,
+	keysAndValues ...any,
+) (*resource.Resource, error) {
 	// Start with the basic required attributes
 	attrs := []attribute.KeyValue{
 		semconv.ServiceNameKey.String(serviceName),
@@ -398,6 +429,7 @@ func newResource(ctx context.Context, serviceName, serviceVersion string, keysAn
 	if err != nil {
 		return nil, err
 	}
+
 	return r, nil
 }
 
@@ -408,7 +440,12 @@ func newPropagator() propagation.TextMapPropagator {
 	)
 }
 
-func newTraceProvider(ctx context.Context, serviceName, serviceVersion, endpoint string, logger logr.Logger, keysAndValues ...any) (*tracesdk.TracerProvider, error) {
+func newTraceProvider(
+	ctx context.Context,
+	serviceName, serviceVersion, endpoint string,
+	logger logr.Logger,
+	keysAndValues ...any,
+) (*tracesdk.TracerProvider, error) {
 	logger.Info("Setting up OTel trace provider", "service", serviceName, "version", serviceVersion)
 	var traceProvider *tracesdk.TracerProvider
 
@@ -426,12 +463,14 @@ func newTraceProvider(ctx context.Context, serviceName, serviceVersion, endpoint
 		)
 		if err != nil {
 			logger.Error(err, "failed to create OTLP trace exporter")
+
 			return nil, err
 		}
 
 		res, err := newResource(ctx, serviceName, serviceVersion, keysAndValues...)
 		if err != nil {
 			logger.Error(err, "failed to create resource")
+
 			return nil, err
 		}
 

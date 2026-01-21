@@ -43,6 +43,7 @@ func NewOTelConfigFromEnv(defaultConfig OTelConfig) OTelConfig {
 			"error", err,
 			"defaults", defaultConfig)
 	}
+
 	return defaultConfig
 }
 

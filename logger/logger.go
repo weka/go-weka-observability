@@ -78,25 +78,31 @@ type Logger struct {
 // NewLogger creates a new Logger with environment configuration
 func NewLogger() *Logger {
 	log := NewZeroLogger()
+
 	return &Logger{log}
 }
 
 // By default, log string in zerolog that uses `caller` will have formart:
-// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
+// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text"
+// additional_field=value logger=TopLevelName.NestedLoggerName
 // without `caller`:
-// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
+// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value
+// logger=TopLevelName.NestedLoggerName
 // ---
 // This function will change the `logger` field to be put instead of `caller`:
-// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text" additional_field=value
+// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text"
+// additional_field=value
 func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 	initLogger := NewZeroLoggerWithoutCaller()
 	zerologr.NameFieldName = "caller"
+
 	return zerologr.New(initLogger)
 }
 
 // NewLoggerWithoutCaller creates a new Logger without caller information
 func NewLoggerWithoutCaller() *Logger {
 	log := NewZeroLoggerWithoutCaller()
+
 	return &Logger{log}
 }
 
@@ -108,6 +114,7 @@ func NewZeroLogger() *zerolog.Logger {
 		Timestamp().
 		Caller().
 		Logger()
+
 	return &log
 }
 
@@ -118,6 +125,7 @@ func NewZeroLoggerWithoutCaller() *zerolog.Logger {
 		With().
 		Timestamp().
 		Logger()
+
 	return &log
 }
 
@@ -136,6 +144,7 @@ func NewZeroLoggerWithConfig(config Config) *zerolog.Logger {
 	}
 
 	log := logCtx.Logger()
+
 	return &log
 }
 
@@ -148,6 +157,7 @@ func NewNamedLogger(serviceName string) *Logger {
 		Timestamp().
 		Caller().
 		Logger()
+
 	return &Logger{&log}
 }
 

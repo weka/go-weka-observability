@@ -2,14 +2,24 @@ package logger
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 )
 
-type ctxLogger struct{}
-type logrContextKey struct{}
+// Sentinel errors for context operations
+var (
+	// ErrLoggerNotFound is returned when no logger exists in context.
+	ErrLoggerNotFound = errors.New("logger not found in context")
+	// ErrLoggerWrongType is returned when context value is not a logr.Logger.
+	ErrLoggerWrongType = errors.New("context value is not a logr.Logger")
+)
+
+type (
+	ctxLogger      struct{}
+	logrContextKey struct{}
+)
 
 // GetLoggerFromContext retrieves the legacy Logger from context
 func GetLoggerFromContext(ctx context.Context) *Logger {
@@ -19,6 +29,7 @@ func GetLoggerFromContext(ctx context.Context) *Logger {
 			return ctxLogger
 		}
 	}
+
 	return NewLogger()
 }
 
@@ -57,12 +68,13 @@ func ContextWithLogr(ctx context.Context, logger logr.Logger) context.Context {
 func LogrFromContext(ctx context.Context) (logr.Logger, error) {
 	logger := ctx.Value(logrContextKey{})
 	if logger == nil {
-		return logr.Logger{}, fmt.Errorf("logger not found in context")
+		return logr.Logger{}, ErrLoggerNotFound
 	}
 	logrLogger, ok := logger.(logr.Logger)
 	if !ok {
-		return logr.Logger{}, fmt.Errorf("context value is not a logr.Logger")
+		return logr.Logger{}, ErrLoggerWrongType
 	}
+
 	return logrLogger, nil
 }
 
@@ -79,6 +91,7 @@ func MustLogrFromContext(ctx context.Context) logr.Logger {
 	if err != nil {
 		panic(err)
 	}
+
 	return logger
 }
 
@@ -98,6 +111,7 @@ func LogrFromContextOrDefault(ctx context.Context) logr.Logger {
 
 	// Create default logger with environment configuration
 	zlog := NewZeroLogger()
+
 	return zerologr.New(zlog)
 }
 
@@ -108,6 +122,7 @@ func GetLoggerFromExistingWithStrValues(logger *Logger, vals map[string]string) 
 		newLoggerCtx = newLoggerCtx.Str(k, v)
 	}
 	newLogger := newLoggerCtx.Logger()
+
 	return &Logger{&newLogger}
 }
 
@@ -143,6 +158,7 @@ func GetLoggerFromExistingWithStrValues(logger *Logger, vals map[string]string) 
 func CreateLoggerFrom(config Config) logr.Logger {
 	overridenConfig := NewConfigFromEnv(config)
 	zlog := NewZeroLoggerWithConfig(overridenConfig)
+
 	return zerologr.New(zlog)
 }
 
@@ -181,5 +197,6 @@ func CreateLogger(opts ...LoggerOption) logr.Logger {
 	for _, opt := range opts {
 		opt(&config)
 	}
+
 	return CreateLoggerFrom(config)
 }

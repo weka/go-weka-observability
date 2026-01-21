@@ -8,11 +8,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/go-weka-observability/instrumentation/oteltest"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/go-weka-observability/instrumentation/oteltest"
 )
 
 // TestGetTracerProviderDetection verifies that getTracer detects TracerProvider changes
@@ -83,7 +84,7 @@ func TestContextOverride(t *testing.T) {
 	assert.Equal(t, "custom-operation", customSpans[0].Name())
 
 	// Global recorder should have no spans
-	assert.Len(t, globalRecorder.Ended(), 0)
+	assert.Empty(t, globalRecorder.Ended())
 }
 
 // TestProviderSwapPattern tests the provider swap pattern commonly used in tests.
@@ -120,7 +121,7 @@ func TestConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	numGoroutines := 100
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -133,7 +134,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Verify all spans were created
 	spans := recorder.Ended()
-	assert.Equal(t, numGoroutines, len(spans))
+	assert.Len(t, spans, numGoroutines)
 }
 
 // TestContextOverrideWithRootSpan verifies context tracer injection works
@@ -164,7 +165,7 @@ func TestContextOverrideWithRootSpan(t *testing.T) {
 	assert.Equal(t, "root-operation", customSpans[0].Name())
 
 	// Global recorder should have no spans
-	assert.Len(t, globalRecorder.Ended(), 0)
+	assert.Empty(t, globalRecorder.Ended())
 }
 
 // TestParallelTestsWithContextOverride demonstrates that multiple parallel tests
@@ -216,7 +217,7 @@ func TestCacheHitPerformance(t *testing.T) {
 
 	// All spans should be created successfully
 	spans := recorder.Ended()
-	assert.Equal(t, 3, len(spans))
+	assert.Len(t, spans, 3)
 }
 
 // TestProviderSwapInMiddleOfOperations tests that provider swap
@@ -274,8 +275,7 @@ func TestSetupTester(t *testing.T) {
 
 // TestSetupTesterParallelSafety verifies multiple parallel tests don't interfere
 func TestSetupTesterParallelSafety(t *testing.T) {
-	for i := 0; i < 3; i++ {
-		i := i
+	for i := range 3 {
 		t.Run(fmt.Sprintf("test-%d", i), func(t *testing.T) {
 			t.Parallel() // Safe
 

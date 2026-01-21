@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weka/go-weka-observability/logger"
 )
 
@@ -36,8 +37,8 @@ var allLogEnvVars = []string{
 
 type LoggerTestSuite struct {
 	suite.Suite
-	tempDir         string
 	origSlogHandler slog.Handler
+	tempDir         string
 }
 
 func (s *LoggerTestSuite) SetupTest() {
@@ -268,7 +269,6 @@ func (s *LoggerTestSuite) TestEnvOverride_PartialOverride_RealFiles() {
 	s.True(os.IsNotExist(err))
 }
 
-
 func (s *LoggerTestSuite) TestMultiLevelWriter_SeparatesLevels() {
 	config := logger.Config{
 		Sink: logger.SinkConfig{
@@ -350,7 +350,7 @@ func TestDefaultConfig(t *testing.T) {
 	// Test sink defaults
 	assert.Equal(t, logger.ConsoleMode, config.Sink.Mode)
 	assert.Equal(t, "/var/log", config.Sink.Dir)
-	assert.Equal(t, "", config.Sink.FileName)
+	assert.Empty(t, config.Sink.FileName)
 	assert.Equal(t, 100, config.Sink.MaxSizeMB)
 	assert.Equal(t, 5, config.Sink.MaxFiles)
 	assert.Equal(t, 28, config.Sink.MaxAgeDays)
@@ -367,10 +367,10 @@ func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
 	cleanupEnvVars(t, allLogEnvVars)
 
 	tests := []struct {
+		check    func(*testing.T, logger.Config)
 		name     string
 		envKey   string
 		envValue string
-		check    func(*testing.T, logger.Config)
 	}{
 		{
 			name:     "LOG_MODE overrides sink mode",
@@ -445,10 +445,10 @@ func TestNewConfigFromEnv_FormatOverrides(t *testing.T) {
 	cleanupEnvVars(t, allLogEnvVars)
 
 	tests := []struct {
+		check    func(*testing.T, logger.Config)
 		name     string
 		envKey   string
 		envValue string
-		check    func(*testing.T, logger.Config)
 	}{
 		{
 			name:     "LOG_LEVEL overrides format level",
@@ -997,4 +997,3 @@ func TestNewZeroLoggerWithConfig_ConsoleModeRoutesToStdoutStderr(t *testing.T) {
 			"Info log should NOT be in error file")
 	})
 }
-

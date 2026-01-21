@@ -8,6 +8,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weka/go-weka-observability/instrumentation"
 )
 
@@ -21,7 +22,7 @@ func cleanupEnvVar(t *testing.T, key string) {
 func TestDefaultOTelConfig(t *testing.T) {
 	config := instrumentation.DefaultOTelConfig()
 
-	assert.Equal(t, "", config.Endpoint, "Default endpoint should be empty")
+	assert.Empty(t, config.Endpoint, "Default endpoint should be empty")
 	assert.Nil(t, config.ResourceAttributes, "Default resource attributes should be nil")
 }
 
@@ -32,7 +33,7 @@ func TestNewOTelConfigFromEnv_NoEnvVars(t *testing.T) {
 	defaultConfig := instrumentation.DefaultOTelConfig()
 	config := instrumentation.NewOTelConfigFromEnv(defaultConfig)
 
-	assert.Equal(t, "", config.Endpoint, "Should use default endpoint when no env var")
+	assert.Empty(t, config.Endpoint, "Should use default endpoint when no env var")
 }
 
 func TestNewOTelConfigFromEnv_WithEnvVar(t *testing.T) {

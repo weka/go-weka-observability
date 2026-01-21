@@ -137,6 +137,7 @@ func getAttributesFromKeysAndValues(keysAndValues ...any) []attribute.KeyValue {
 		}
 		attrs = append(attrs, attributeFromValue(k, keysAndValues[i+1]))
 	}
+
 	return attrs
 }
 
@@ -192,6 +193,7 @@ func enrichLogger(logger logr.Logger, name string, keysAndValues []any) logr.Log
 	if name != "" {
 		logger = logger.WithName(name)
 	}
+
 	return logger
 }
 
@@ -206,6 +208,7 @@ func addTraceIDsIfValid(logger logr.Logger, span trace.Span) logr.Logger {
 	if traceID.IsValid() && spanID.IsValid() {
 		logger = logger.WithValues("trace_id", traceID.String(), "span_id", spanID.String())
 	}
+
 	return logger
 }
 
@@ -235,4 +238,3 @@ func newSpanLogger(ctx context.Context, logger logr.Logger, span trace.Span, shu
 func logOperationStart(logger logr.Logger, name string) {
 	logger.V(VerbosityLevelTrace).Info(name + " called")
 }
-

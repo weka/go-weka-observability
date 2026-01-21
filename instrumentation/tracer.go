@@ -4,9 +4,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/weka/go-weka-observability/internal/version"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/weka/go-weka-observability/internal/version"
 )
 
 var (
@@ -95,6 +96,7 @@ func GetTracer(ctx context.Context) trace.Tracer {
 	tracerCacheMu.RLock()
 	if cachedTracer != nil && cachedProvider == currentProvider {
 		defer tracerCacheMu.RUnlock()
+
 		return cachedTracer
 	}
 	tracerCacheMu.RUnlock()
