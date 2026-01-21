@@ -1,9 +1,9 @@
 package logger
 
-import "fmt"
-
-// OutputMode defines where logs should be written
-type OutputMode string
+import (
+	"errors"
+	"fmt"
+)
 
 const (
 	// ConsoleMode outputs logs to stderr
@@ -11,6 +11,12 @@ const (
 	// FileMode outputs logs to files
 	FileMode OutputMode = "file"
 )
+
+// ErrInvalidOutputMode is returned when an invalid output mode string is provided.
+var ErrInvalidOutputMode = errors.New("invalid output mode")
+
+// OutputMode defines where logs should be written
+type OutputMode string
 
 // ParseOutputMode parses a string into an OutputMode with validation
 func ParseOutputMode(s string) (OutputMode, error) {
@@ -20,6 +26,6 @@ func ParseOutputMode(s string) (OutputMode, error) {
 	case "file":
 		return FileMode, nil
 	default:
-		return ConsoleMode, fmt.Errorf("invalid output mode %q, valid options: console, file", s)
+		return ConsoleMode, fmt.Errorf("%w: %q, valid options: console, file", ErrInvalidOutputMode, s)
 	}
 }

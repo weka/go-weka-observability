@@ -155,6 +155,8 @@ func GetLoggerFromExistingWithStrValues(logger *Logger, vals map[string]string) 
 //	logr := logger.CreateLoggerFrom(config)
 //	// Users can override: LOG_LEVEL=1 to change to info level
 //	// Or: LOG_MODE=console to output to stderr instead of file
+//
+//nolint:gocritic // hugeParam: intentional value semantics for clean API - called once at init, copy overhead negligible
 func CreateLoggerFrom(config Config) logr.Logger {
 	overridenConfig := NewConfigFromEnv(config)
 	zlog := NewZeroLoggerWithConfig(overridenConfig)

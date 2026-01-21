@@ -61,23 +61,24 @@ import (
 //
 // Direct assignment (instrumentation.Tracer = myTracer) will be overwritten on next span
 // creation, so use ContextWithTracer() or otel.SetTracerProvider() instead.
+//
+//nolint:gochecknoglobals // deprecated public API kept for backward compatibility - will be removed in v2.0
 var Tracer trace.Tracer
 
+// NewZerologrWithLoggerNameInsteadCaller creates a zerologr logger that uses logger name instead of caller.
+//
 // Deprecated: Use logger.NewZerologrWithLoggerNameInsteadCaller instead.
+// This function belongs in the logger package, not instrumentation package.
 //
-// Reason: This function belongs in the logger package, not instrumentation package.
-// Moving it improves package cohesion and clarity of responsibility.
+// By default, log string in zerolog that uses `caller` will have format:
 //
-// By default, log string in zerolog that uses `caller` will have formart:
-// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text"
-// additional_field=value logger=TopLevelName.NestedLoggerName
-// without `caller`:
-// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value
-// logger=TopLevelName.NestedLoggerName
-// ---
+//	2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text"
+//	additional_field=value logger=TopLevelName.NestedLoggerName
+//
 // This function will change the `logger` field to be put instead of `caller`:
-// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text"
-// additional_field=value
+//
+//	2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text"
+//	additional_field=value
 func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 	initLogger := zerologger.NewZeroLoggerWithoutCaller()
 	zerologr.NameFieldName = "caller"

@@ -243,9 +243,10 @@ func SetupOTelSDKFrom(
 	// Merge provided keysAndValues with config's ResourceAttributes
 	// Copy ResourceAttributes to avoid mutating the caller's config
 	if len(keysAndValues) > 0 {
-		newAttrs := make([]any, len(config.ResourceAttributes))
-		copy(newAttrs, config.ResourceAttributes)
-		config.ResourceAttributes = append(newAttrs, keysAndValues...)
+		merged := make([]any, 0, len(config.ResourceAttributes)+len(keysAndValues))
+		merged = append(merged, config.ResourceAttributes...)
+		merged = append(merged, keysAndValues...)
+		config.ResourceAttributes = merged
 	}
 
 	return setupOTelSDKInternal(ctx, serviceName, serviceVersion, logger, config)
@@ -359,7 +360,7 @@ func setupOTelSDKInternal(
 			WithCallDepth(CallDepthOffset).
 			Info("No OTLP endpoint configured - traces will not be exported")
 
-		return func(ctx context.Context) error {
+		return func(_ context.Context) error {
 			return nil
 		}, nil
 	}
@@ -403,14 +404,16 @@ func newResource(
 	serviceName, serviceVersion string,
 	keysAndValues ...any,
 ) (*resource.Resource, error) {
-	// Start with the basic required attributes
-	attrs := []attribute.KeyValue{
-		semconv.ServiceNameKey.String(serviceName),
-		semconv.ServiceVersionKey.String(serviceVersion),
-	}
-
 	// Add any additional resource attributes provided using the existing helper function
 	additionalAttrs := getAttributesFromKeysAndValues(keysAndValues...)
+
+	// Preallocate with known capacity: 2 base attributes + additional
+	baseAttrCount := 2
+	attrs := make([]attribute.KeyValue, 0, baseAttrCount+len(additionalAttrs))
+	attrs = append(attrs,
+		semconv.ServiceNameKey.String(serviceName),
+		semconv.ServiceVersionKey.String(serviceVersion),
+	)
 	attrs = append(attrs, additionalAttrs...)
 
 	// Create resource without SchemaURL to avoid community-reported conflicts

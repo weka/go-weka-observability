@@ -8,7 +8,11 @@ import (
 	"github.com/weka/go-weka-observability/logger"
 )
 
-func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr string) context.Context {
+// NewContextWithTraceID creates a context with a remote span context from a trace ID string.
+// This is useful for propagating trace context from external sources.
+//
+// Note: The tracer parameter is unused but kept for API compatibility.
+func NewContextWithTraceID(ctx context.Context, _ trace.Tracer, traceIDStr string) context.Context {
 	traceID, err := trace.TraceIDFromHex(traceIDStr)
 	if err != nil {
 		logger.LogrFromContextOrDefault(ctx).V(VerbosityLevelDebug).Info(
@@ -18,27 +22,21 @@ func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr 
 		)
 	}
 
-	//nolint:ineffassign,staticcheck
-	if tracer == nil {
-		tracer = Tracer
-	}
-
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		TraceFlags: trace.FlagsSampled,
 	})
 
-	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	// retCtx, _ := tracer.Start(ctx, "SharedClusterContext")
-
-	return ctx
+	return trace.ContextWithRemoteSpanContext(ctx, sc)
 }
 
 // NewContextWithSpanID creates a context with remote span context from trace and span ID strings.
 // This is useful for propagating trace context from external sources.
+//
+// Note: The tracer parameter is unused but kept for API compatibility.
 func NewContextWithSpanID(
 	ctx context.Context,
-	tracer trace.Tracer,
+	_ trace.Tracer,
 	traceIDStr string,
 	spanIDStr string,
 ) context.Context {
@@ -54,19 +52,11 @@ func NewContextWithSpanID(
 		log.V(VerbosityLevelDebug).Info("invalid span ID, will use zero span ID", "spanID", spanIDStr, "error", err)
 	}
 
-	//nolint:ineffassign,staticcheck
-	if tracer == nil {
-		tracer = Tracer
-	}
-
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     spanID,
 		TraceFlags: trace.FlagsSampled,
 	})
 
-	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	// retCtx, span := tracer.Start(ctx, spanName)
-
-	return ctx
+	return trace.ContextWithRemoteSpanContext(ctx, sc)
 }

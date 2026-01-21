@@ -41,8 +41,27 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 )
 
-// setupTestPropagatorOnce ensures propagator is set only once across all tests
-var setupTestPropagatorOnce sync.Once
+// globalPropagatorInit is the singleton initializer.
+//
+//nolint:gochecknoglobals // singleton pattern - encapsulates sync.Once for one-time propagator setup
+var globalPropagatorInit = &propagatorInitializer{}
+
+// propagatorInitializer ensures propagator is set only once across all tests.
+// Using a struct encapsulates the sync.Once pattern for cleaner architecture.
+type propagatorInitializer struct {
+	once sync.Once
+}
+
+// setup configures the global propagator if not already done.
+func (pi *propagatorInitializer) setup() {
+	pi.once.Do(func() {
+		prop := propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		)
+		otel.SetTextMapPropagator(prop)
+	})
+}
 
 // SetupTester creates a test context with tracer injection suitable for parallel tests.
 // It returns a context with injected tracer and a span recorder for assertions.
@@ -92,13 +111,7 @@ func SetupTester(ctx context.Context) (context.Context, *tracetest.SpanRecorder)
 
 	// Setup propagator once (thread-safe, only first call does the work)
 	// Required for production code that uses trace propagation (HTTP headers, etc.)
-	setupTestPropagatorOnce.Do(func() {
-		prop := propagation.NewCompositeTextMapPropagator(
-			propagation.TraceContext{},
-			propagation.Baggage{},
-		)
-		otel.SetTextMapPropagator(prop)
-	})
+	globalPropagatorInit.setup()
 
 	// Inject via context (provides tracer isolation for parallel tests)
 	ctx = instrumentation.ContextWithTracer(ctx, tracer)

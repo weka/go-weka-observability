@@ -168,10 +168,27 @@ linters:
       - linters:
           - gochecknoglobals
         text: callerMarshalMutex
+      # Examples prioritize readability over strict linting rules
+      - linters:
+          - gochecknoglobals
+          - gochecknoinits
+          - mnd
+          - funlen
+          - goconst
+          - dupl
+          - errcheck
+          - errchkjson
+          - err113
+          - gocritic
+          - prealloc
+        path: ^examples/
+      - linters:
+          - revive
+        path: ^examples/
+        text: package-comments
     paths:
       - third_party$
       - builtin$
-      - examples$
 formatters:
   enable:
     - goimports
@@ -208,4 +225,3 @@ formatters:
     paths:
       - third_party$
       - builtin$
-      - examples$

@@ -10,15 +10,24 @@ import (
 	"github.com/weka/go-weka-observability/internal/version"
 )
 
-var (
-	// Tracer cache with provider change detection
-	cachedTracer   trace.Tracer
-	cachedProvider trace.TracerProvider
-	tracerCacheMu  sync.RWMutex
-)
+// globalTracerCache is the singleton cache instance.
+// This encapsulated pattern is preferred over bare package-level variables.
+//
+//nolint:gochecknoglobals // singleton pattern - encapsulates tracer caching with mutex protection
+var globalTracerCache = &tracerCache{}
 
-// tracerKey is the context key type for storing custom tracers
-type tracerKey struct{}
+type (
+	// tracerKey is the context key type for storing custom tracers
+	tracerKey struct{}
+
+	// tracerCache provides thread-safe caching of the OpenTelemetry tracer
+	// with automatic invalidation when the provider changes.
+	tracerCache struct {
+		tracer   trace.Tracer
+		provider trace.TracerProvider
+		mu       sync.RWMutex
+	}
+)
 
 // GetTracer returns the tracer instance for direct OpenTelemetry span creation.
 //
@@ -85,40 +94,46 @@ type tracerKey struct{}
 //	view.Info("Logging under custom span")
 func GetTracer(ctx context.Context) trace.Tracer {
 	// Priority 1: Context override (tests, multi-tenant scenarios)
-	if tracer := ctx.Value(tracerKey{}); tracer != nil {
-		return tracer.(trace.Tracer)
+	if tracer, ok := ctx.Value(tracerKey{}).(trace.Tracer); ok {
+		return tracer
 	}
 
 	// Priority 2: Smart cached tracer with provider detection
+	return globalTracerCache.getOrCreate()
+}
+
+// getOrCreate returns the cached tracer or creates a new one if the provider changed.
+// Uses double-check locking pattern for thread safety.
+func (tc *tracerCache) getOrCreate() trace.Tracer {
 	currentProvider := otel.GetTracerProvider()
 
 	// Fast path: read-only check if cache is valid
-	tracerCacheMu.RLock()
-	if cachedTracer != nil && cachedProvider == currentProvider {
-		defer tracerCacheMu.RUnlock()
+	tc.mu.RLock()
+	if tc.tracer != nil && tc.provider == currentProvider {
+		defer tc.mu.RUnlock()
 
-		return cachedTracer
+		return tc.tracer
 	}
-	tracerCacheMu.RUnlock()
+	tc.mu.RUnlock()
 
 	// Slow path: cache miss or provider changed
-	tracerCacheMu.Lock()
-	defer tracerCacheMu.Unlock()
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
 
 	// Double-check pattern (another goroutine might have updated)
-	if cachedTracer != nil && cachedProvider == currentProvider {
-		return cachedTracer
+	if tc.tracer != nil && tc.provider == currentProvider {
+		return tc.tracer
 	}
 
 	// Create new tracer from current provider
-	cachedTracer = otel.Tracer(
+	tc.tracer = otel.Tracer(
 		version.GetInstrumentationName(),
 		trace.WithInstrumentationVersion(version.GetInstrumentationVersion()),
 	)
-	cachedProvider = currentProvider
+	tc.provider = currentProvider
 
 	// Keep public Tracer in sync for legacy code
-	Tracer = cachedTracer
+	Tracer = tc.tracer
 
-	return cachedTracer
+	return tc.tracer
 }

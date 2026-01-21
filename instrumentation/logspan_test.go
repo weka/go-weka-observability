@@ -19,6 +19,9 @@ import (
 	"github.com/weka/go-weka-observability/logger"
 )
 
+// errTest is a static test error used for error handling tests.
+var errTest = errors.New("test error")
+
 // SpanLoggerAPISuite tests the new SpanLogger API with type-safe span ownership
 type SpanLoggerAPISuite struct {
 	suite.Suite
@@ -50,7 +53,9 @@ func (s *SpanLoggerAPISuite) SetupTest() {
 
 func (s *SpanLoggerAPISuite) TearDownTest() {
 	if s.recorder != nil {
-		_ = s.recorder.Shutdown(context.Background())
+		if err := s.recorder.Shutdown(context.Background()); err != nil {
+			s.T().Logf("failed to shutdown recorder: %v", err)
+		}
 	}
 }
 
@@ -173,17 +178,17 @@ func (s *SpanLoggerAPISuite) TestSpanLoggerWithValues_ReturnsUpdatedContext() {
 	attrs := spans[0].Attributes()
 	s.NotEmpty(attrs)
 
-	foundUserId := false
+	foundUserID := false
 	foundTenant := false
 	for _, attr := range attrs {
 		if string(attr.Key) == "user_id" && attr.Value.AsInt64() == 123 {
-			foundUserId = true
+			foundUserID = true
 		}
 		if string(attr.Key) == "tenant" && attr.Value.AsString() == "acme" {
 			foundTenant = true
 		}
 	}
-	s.True(foundUserId, "Expected 'user_id=123' attribute from WithValues")
+	s.True(foundUserID, "Expected 'user_id=123' attribute from WithValues")
 	s.True(foundTenant, "Expected 'tenant=acme' attribute from WithValues")
 
 	// Verify enriched values appear in logged output
@@ -213,13 +218,13 @@ func (s *SpanLoggerAPISuite) TestSpanLoggerViewWithValues_ReturnsUpdatedContext(
 	s.Len(spans, 1)
 
 	attrs := spans[0].Attributes()
-	foundRequestId := false
+	foundRequestID := false
 	for _, attr := range attrs {
 		if string(attr.Key) == "request_id" && attr.Value.AsString() == "req-456" {
-			foundRequestId = true
+			foundRequestID = true
 		}
 	}
-	s.True(foundRequestId, "Expected 'request_id=req-456' attribute from view's WithValues")
+	s.True(foundRequestID, "Expected 'request_id=req-456' attribute from view's WithValues")
 
 	// Verify enriched value appears in logged output
 	s.assertLogContains("enriched view log", "Logger should have logged the message")
@@ -276,11 +281,9 @@ func (s *SpanLoggerAPISuite) TestSpanLoggerLoggingMethods() {
 
 // TestSpanLoggerErrorMethods verifies error logging behavior
 func (s *SpanLoggerAPISuite) TestSpanLoggerErrorMethods() {
-	testErr := errors.New("test error")
-
 	// Test Error (logs but doesn't set span status)
 	_, spanLogger := instrumentation.CreateLogSpan(s.ctx, "operation_error")
-	spanLogger.Error(testErr, "error occurred", "key", "value")
+	spanLogger.Error(errTest, "error occurred", "key", "value")
 	spanLogger.End()
 
 	spans := s.recorder.Ended()
@@ -309,7 +312,7 @@ func (s *SpanLoggerAPISuite) TestSpanLoggerErrorMethods() {
 
 	// Test SetError (logs and sets span status to error)
 	_, spanLogger2 := instrumentation.CreateLogSpan(s.ctx, "operation_set_error")
-	spanLogger2.SetError(testErr, "error occurred", "key", "value")
+	spanLogger2.SetError(errTest, "error occurred", "key", "value")
 	spanLogger2.End()
 
 	spans = s.recorder.Ended()
@@ -452,12 +455,12 @@ func ExampleCreateLogSpan() {
 	ctx := context.Background()
 
 	// Create a span - you own it and must call End()
-	_, logger := instrumentation.CreateLogSpan(ctx, "process_request", "user_id", 123)
-	defer logger.End() // Required!
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "process_request", "user_id", 123)
+	defer spanLogger.End() // Required!
 
 	// Log messages automatically create span events
-	logger.Info("Processing user request")
-	logger.Debug("Detailed processing info")
+	spanLogger.Info("Processing user request")
+	spanLogger.Debug("Detailed processing info")
 
 	// The span is automatically a child of any existing span in ctx
 }
@@ -489,22 +492,22 @@ func ExampleCreateRootLogSpan() {
 	ctx := context.Background()
 
 	// Create a root span - starts completely new trace
-	_, logger := instrumentation.CreateRootLogSpan(ctx, "background_job", "job_id", "abc-123")
-	defer logger.End()
+	_, spanLogger := instrumentation.CreateRootLogSpan(ctx, "background_job", "job_id", "abc-123")
+	defer spanLogger.End()
 
 	// This span has its own trace ID, independent of any parent
-	logger.Info("Background job started")
-	logger.Info("Job processing completed")
+	spanLogger.Info("Background job started")
+	spanLogger.Info("Job processing completed")
 }
 
 // Example_withValues demonstrates enriching logger context.
 func Example_withValues() {
 	ctx := context.Background()
-	_, logger := instrumentation.CreateLogSpan(ctx, "process_order")
-	defer logger.End()
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "process_order")
+	defer spanLogger.End()
 
 	// Enrich context with additional values
-	_, enrichedLogger := logger.WithValues("order_id", "ORD-456", "customer_id", 789)
+	_, enrichedLogger := spanLogger.WithValues("order_id", "ORD-456", "customer_id", 789)
 
 	// All logs from enrichedLogger include order_id and customer_id
 	enrichedLogger.Info("Order validated")
@@ -514,18 +517,18 @@ func Example_withValues() {
 // Example_errorHandling demonstrates error logging patterns.
 func Example_errorHandling() {
 	ctx := context.Background()
-	_, logger := instrumentation.CreateLogSpan(ctx, "operation")
-	defer logger.End()
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "operation")
+	defer spanLogger.End()
 
 	// Log an error without marking span as failed (recoverable error)
 	if err := someRecoverableOperation(); err != nil {
-		logger.Error(err, "Recoverable error occurred", "attempt", 1)
+		spanLogger.Error(err, "Recoverable error occurred", "attempt", 1)
 		// Span status remains OK
 	}
 
 	// Log an error AND mark span as failed (critical error)
 	if err := someCriticalOperation(); err != nil {
-		logger.SetError(err, "Critical error occurred")
+		spanLogger.SetError(err, "Critical error occurred")
 		// Span status = Error (visible in tracing UI)
 		return
 	}
@@ -731,8 +734,7 @@ func (s *SpanLoggerAPISuite) TestCreateLogSpanWithOptions_MaintainsSpanLoggerInt
 	spanLogger.Info("Operation started", "step", 1)
 	spanLogger.Debug("Processing data", "count", 42)
 
-	err := errors.New("test error")
-	spanLogger.Error(err, "Non-critical error")
+	spanLogger.Error(errTest, "Non-critical error")
 
 	spanLogger.End()
 

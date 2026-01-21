@@ -3,6 +3,8 @@ package logger
 import "github.com/rs/zerolog"
 
 // LoggerOption is a functional option for logger creation
+//
+//nolint:revive // LoggerOption maintains backwards compatibility - logger.LoggerOption is intentional
 type LoggerOption func(*Config)
 
 // Sink options

@@ -16,6 +16,22 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation/oteltest"
 )
 
+// shutdownProvider is a helper to shutdown a TracerProvider and log any errors.
+func shutdownProvider(ctx context.Context, t *testing.T, tp *trace.TracerProvider) {
+	t.Helper()
+	if err := tp.Shutdown(ctx); err != nil {
+		t.Logf("failed to shutdown provider: %v", err)
+	}
+}
+
+// shutdownRecorder is a helper to shutdown a SpanRecorder and log any errors.
+func shutdownRecorder(ctx context.Context, t *testing.T, recorder *tracetest.SpanRecorder) {
+	t.Helper()
+	if err := recorder.Shutdown(ctx); err != nil {
+		t.Logf("failed to shutdown recorder: %v", err)
+	}
+}
+
 // TestGetTracerProviderDetection verifies that getTracer detects TracerProvider changes
 // and automatically invalidates the cache when the provider is swapped.
 func TestGetTracerProviderDetection(t *testing.T) {
@@ -52,8 +68,8 @@ func TestGetTracerProviderDetection(t *testing.T) {
 	assert.Len(t, recorder1.Ended(), 1)
 
 	// Cleanup
-	_ = tp1.Shutdown(ctx1)
-	_ = tp2.Shutdown(ctx2)
+	shutdownProvider(ctx1, t, tp1)
+	shutdownProvider(ctx2, t, tp2)
 }
 
 // TestContextOverride verifies that context-based tracer injection takes
@@ -63,19 +79,19 @@ func TestContextOverride(t *testing.T) {
 
 	// Create global provider (will be ignored)
 	_, globalRecorder := oteltest.SetupTesterWithProvider(context.Background())
-	defer func() { _ = globalRecorder.Shutdown(context.Background()) }()
+	defer shutdownRecorder(context.Background(), t, globalRecorder)
 
 	// Create custom tracer with context override
 	customRecorder := tracetest.NewSpanRecorder()
 	customTP := trace.NewTracerProvider(trace.WithSpanProcessor(customRecorder))
 	customTracer := customTP.Tracer("custom-test-tracer")
-	defer func() { _ = customTP.Shutdown(ctx) }()
+	defer shutdownProvider(ctx, t, customTP)
 
 	// Inject custom tracer via context
 	ctx = instrumentation.ContextWithTracer(ctx, customTracer)
 
 	// Create span - should use custom tracer
-	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "custom-operation")
+	_, spanLogger := instrumentation.CreateLogSpan(ctx, "custom-operation")
 	spanLogger.End()
 
 	// Verify span went to custom recorder, not global
@@ -96,7 +112,7 @@ func TestProviderSwapPattern(t *testing.T) {
 
 	// Use oteltest.SetupTester for parallel-safe test setup
 	ctx, recorder := oteltest.SetupTester(ctx)
-	defer func() { _ = recorder.Shutdown(context.Background()) }()
+	defer shutdownRecorder(context.Background(), t, recorder)
 
 	// GetTracer() resolves from context
 	_, spanLogger := instrumentation.CreateLogSpan(ctx, "test-operation")
@@ -116,18 +132,18 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Use oteltest.SetupTesterWithProvider for simplified setup
 	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
-	defer func() { _ = recorder.Shutdown(context.Background()) }()
+	defer shutdownRecorder(context.Background(), t, recorder)
 
 	var wg sync.WaitGroup
 	numGoroutines := 100
 
-	for i := range numGoroutines {
+	for range numGoroutines {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			_, spanLogger := instrumentation.CreateLogSpan(ctx, "concurrent-op")
 			spanLogger.End()
-		}(i)
+		}()
 	}
 
 	wg.Wait()
@@ -144,19 +160,19 @@ func TestContextOverrideWithRootSpan(t *testing.T) {
 
 	// Create global provider (will be ignored)
 	_, globalRecorder := oteltest.SetupTesterWithProvider(context.Background())
-	defer func() { _ = globalRecorder.Shutdown(context.Background()) }()
+	defer shutdownRecorder(context.Background(), t, globalRecorder)
 
 	// Create custom tracer
 	customRecorder := tracetest.NewSpanRecorder()
 	customTP := trace.NewTracerProvider(trace.WithSpanProcessor(customRecorder))
 	customTracer := customTP.Tracer("custom-test-tracer")
-	defer func() { _ = customTP.Shutdown(ctx) }()
+	defer shutdownProvider(ctx, t, customTP)
 
 	// Inject via context
 	ctx = instrumentation.ContextWithTracer(ctx, customTracer)
 
 	// Create root span
-	ctx, rootLogger := instrumentation.CreateRootLogSpan(ctx, "root-operation", "job_id", "123")
+	_, rootLogger := instrumentation.CreateRootLogSpan(ctx, "root-operation", "job_id", "123")
 	rootLogger.End()
 
 	// Verify span went to custom recorder
@@ -178,7 +194,7 @@ func TestParallelTestsWithContextOverride(t *testing.T) {
 
 		// Use oteltest.SetupTester for parallel-safe, isolated setup
 		ctx, recorder := oteltest.SetupTester(ctx)
-		defer func() { _ = recorder.Shutdown(context.Background()) }()
+		defer shutdownRecorder(context.Background(), t, recorder)
 
 		// Create span
 		_, spanLogger := instrumentation.CreateLogSpan(ctx, testName)
@@ -202,7 +218,7 @@ func TestCacheHitPerformance(t *testing.T) {
 
 	// Use oteltest.SetupTesterWithProvider for simplified setup
 	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
-	defer func() { _ = recorder.Shutdown(context.Background()) }()
+	defer shutdownRecorder(context.Background(), t, recorder)
 
 	// First call - cache miss
 	_, span1 := instrumentation.CreateLogSpan(ctx, "op-1")
@@ -247,8 +263,8 @@ func TestProviderSwapInMiddleOfOperations(t *testing.T) {
 	assert.Len(t, recorder2.Ended(), 1)
 
 	// Cleanup
-	_ = tp1.Shutdown(ctx)
-	_ = tp2.Shutdown(ctx)
+	shutdownProvider(ctx, t, tp1)
+	shutdownProvider(ctx, t, tp2)
 }
 
 // TestSetupTester verifies the context-based test helper
@@ -257,7 +273,7 @@ func TestSetupTester(t *testing.T) {
 
 	ctx := context.Background()
 	ctx, recorder := oteltest.SetupTester(ctx)
-	defer func() { _ = recorder.Shutdown(context.Background()) }()
+	defer shutdownRecorder(context.Background(), t, recorder)
 
 	// Create span using helper context
 	_, spanLogger := instrumentation.CreateLogSpan(ctx, "test-operation")
@@ -275,13 +291,15 @@ func TestSetupTester(t *testing.T) {
 
 // TestSetupTesterParallelSafety verifies multiple parallel tests don't interfere
 func TestSetupTesterParallelSafety(t *testing.T) {
+	t.Parallel()
+
 	for i := range 3 {
 		t.Run(fmt.Sprintf("test-%d", i), func(t *testing.T) {
 			t.Parallel() // Safe
 
 			ctx := context.Background()
 			ctx, recorder := oteltest.SetupTester(ctx)
-			defer func() { _ = recorder.Shutdown(context.Background()) }()
+			defer shutdownRecorder(context.Background(), t, recorder)
 
 			// Each test has its own isolated recorder
 			_, spanLogger := instrumentation.CreateLogSpan(ctx, fmt.Sprintf("op-%d", i))
@@ -300,7 +318,7 @@ func TestSetupTesterWithProvider(t *testing.T) {
 
 	ctx := context.Background()
 	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
-	defer func() { _ = recorder.Shutdown(context.Background()) }()
+	defer shutdownRecorder(context.Background(), t, recorder)
 
 	// Verify provider was swapped
 	_, spanLogger := instrumentation.CreateLogSpan(ctx, "test-operation")
@@ -323,7 +341,11 @@ func ExampleSetupTester() {
 	// oteltest.SetupTester creates test environment with context-based tracer injection
 	// Safe for parallel tests - uses ContextWithTracer internally
 	ctx, recorder := oteltest.SetupTester(ctx)
-	defer func() { _ = recorder.Shutdown(context.Background()) }()
+	defer func() {
+		if err := recorder.Shutdown(context.Background()); err != nil {
+			_ = err // Example: cleanup error intentionally ignored
+		}
+	}()
 
 	// Create spans using context-injected tracer
 	_, logger := instrumentation.CreateLogSpan(ctx, "parallel-test-operation")
@@ -348,7 +370,11 @@ func ExampleSetupTesterWithProvider() {
 	// oteltest.SetupTesterWithProvider swaps global provider
 	// NOT safe for parallel tests - must run sequentially
 	ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
-	defer func() { _ = recorder.Shutdown(context.Background()) }()
+	defer func() {
+		if err := recorder.Shutdown(context.Background()); err != nil {
+			_ = err // Example: cleanup error intentionally ignored
+		}
+	}()
 
 	// Create spans - GetTracer() detects provider swap automatically
 	_, logger := instrumentation.CreateLogSpan(ctx, "sequential-test-operation")
@@ -374,7 +400,11 @@ func ExampleContextWithTracer() {
 	recorder := tracetest.NewSpanRecorder()
 	tp := trace.NewTracerProvider(trace.WithSpanProcessor(recorder))
 	customTracer := tp.Tracer("custom-tracer")
-	defer func() { _ = tp.Shutdown(context.Background()) }()
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			_ = err // Example: cleanup error intentionally ignored
+		}
+	}()
 
 	// Inject tracer via context - takes priority over global provider
 	ctx = instrumentation.ContextWithTracer(ctx, customTracer)

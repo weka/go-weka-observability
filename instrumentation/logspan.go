@@ -3,6 +3,7 @@ package instrumentation
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
@@ -48,15 +49,35 @@ const (
 	//       ls.Logger.WithCallDepth(CallDepthOffset).Info(msg)  // Log shows: caller.go:42 > message
 	//   }
 	CallDepthOffset = 1
+
+	// keyValuePairSize is the number of elements per key-value pair (key + value)
+	// Used for capacity calculation when converting keysAndValues to attributes
+	keyValuePairSize = 2
 )
 
-func init() {
-	// default global settings
-	zerologr.VerbosityFieldName = ""
-	zerologr.NameSeparator = "."
-}
+// globalZerologrInit is the singleton initializer for zerologr defaults.
+//
+//nolint:gochecknoglobals // singleton pattern - encapsulates sync.Once for thread-safe initialization
+var globalZerologrInit = &zerologrInitializer{}
 
-type ContextValuesKey struct{}
+type (
+	// ContextValuesKey is the context key type used to store span attribute values.
+	ContextValuesKey struct{}
+
+	// zerologrInitializer ensures zerologr defaults are set exactly once.
+	zerologrInitializer struct {
+		once sync.Once
+	}
+)
+
+// initZerologrDefaults sets zerologr global settings.
+// Called lazily via sync.Once when first logger is created.
+func initZerologrDefaults() {
+	globalZerologrInit.once.Do(func() {
+		zerologr.VerbosityFieldName = ""
+		zerologr.NameSeparator = "."
+	})
+}
 
 // createChildSpan creates a new child span and enriches context with attributes.
 // This is the core span creation logic used by CreateLogSpan.
@@ -78,9 +99,12 @@ func createChildSpan(ctx context.Context, name string, keysAndValues []any) (con
 
 	// Merge with values saved previously in context
 	allKeysAndValues := keysAndValues
-	if ctx.Value(ContextValuesKey{}) != nil {
-		prevValues := ctx.Value(ContextValuesKey{}).([]any)
-		allKeysAndValues = append(keysAndValues, prevValues...)
+	if prevValues, ok := ctx.Value(ContextValuesKey{}).([]any); ok {
+		// Create new slice with merged values (intentionally not modifying original keysAndValues)
+		merged := make([]any, 0, len(keysAndValues)+len(prevValues))
+		merged = append(merged, keysAndValues...)
+		merged = append(merged, prevValues...)
+		allKeysAndValues = merged
 	}
 
 	// Convert to span attributes and set them
@@ -102,6 +126,8 @@ func createChildSpan(ctx context.Context, name string, keysAndValues []any) (con
 // Returns:
 //   - Updated context with new root span and stored keysAndValues
 //   - The created root span
+//
+// nolint:spancheck // span ownership transferred to caller via SpanLogger.End()
 func createRootSpanInternal(ctx context.Context, name string, keysAndValues []any) (context.Context, trace.Span) {
 	// Get tracer using smart resolution (context > cache > provider)
 	tracer := GetTracer(ctx)
@@ -126,11 +152,11 @@ func getCurrentSpan(ctx context.Context) trace.Span {
 }
 
 func getAttributesFromKeysAndValues(keysAndValues ...any) []attribute.KeyValue {
-	if len(keysAndValues)%2 != 0 {
+	if len(keysAndValues)%keyValuePairSize != 0 {
 		return []attribute.KeyValue{}
 	}
-	attrs := make([]attribute.KeyValue, 0, len(keysAndValues)/2)
-	for i := 0; i < len(keysAndValues); i += 2 {
+	attrs := make([]attribute.KeyValue, 0, len(keysAndValues)/keyValuePairSize)
+	for i := 0; i < len(keysAndValues); i += keyValuePairSize {
 		k, ok := keysAndValues[i].(string)
 		if !ok {
 			continue
@@ -141,32 +167,52 @@ func getAttributesFromKeysAndValues(keysAndValues ...any) []attribute.KeyValue {
 	return attrs
 }
 
-// attributeFromValue creates an OpenTelemetry attribute with proper type handling
+// attributeFromValue creates an OpenTelemetry attribute with proper type handling.
+// Scalar types are handled first, then slice types, with a fallback to string representation.
 func attributeFromValue(key string, value any) attribute.KeyValue {
+	if attr, ok := attributeFromScalar(key, value); ok {
+		return attr
+	}
+	if attr, ok := attributeFromSlice(key, value); ok {
+		return attr
+	}
+	// Fallback to string representation for unknown types
+	return attribute.String(key, fmt.Sprint(value))
+}
+
+// attributeFromScalar handles scalar type conversion for OpenTelemetry attributes.
+func attributeFromScalar(key string, value any) (attribute.KeyValue, bool) {
 	switch v := value.(type) {
 	case string:
-		return attribute.String(key, v)
+		return attribute.String(key, v), true
 	case int:
-		return attribute.Int(key, v)
+		return attribute.Int(key, v), true
 	case int64:
-		return attribute.Int64(key, v)
+		return attribute.Int64(key, v), true
 	case float64:
-		return attribute.Float64(key, v)
+		return attribute.Float64(key, v), true
 	case bool:
-		return attribute.Bool(key, v)
-	case []string:
-		return attribute.StringSlice(key, v)
-	case []int:
-		return attribute.IntSlice(key, v)
-	case []int64:
-		return attribute.Int64Slice(key, v)
-	case []float64:
-		return attribute.Float64Slice(key, v)
-	case []bool:
-		return attribute.BoolSlice(key, v)
+		return attribute.Bool(key, v), true
 	default:
-		// Fallback to string representation for unknown types
-		return attribute.String(key, fmt.Sprint(v))
+		return attribute.KeyValue{}, false
+	}
+}
+
+// attributeFromSlice handles slice type conversion for OpenTelemetry attributes.
+func attributeFromSlice(key string, value any) (attribute.KeyValue, bool) {
+	switch v := value.(type) {
+	case []string:
+		return attribute.StringSlice(key, v), true
+	case []int:
+		return attribute.IntSlice(key, v), true
+	case []int64:
+		return attribute.Int64Slice(key, v), true
+	case []float64:
+		return attribute.Float64Slice(key, v), true
+	case []bool:
+		return attribute.BoolSlice(key, v), true
+	default:
+		return attribute.KeyValue{}, false
 	}
 }
 
@@ -181,7 +227,10 @@ func validateGetLogSpanArgs(name string, keysAndValues []any) {
 }
 
 // getOrCreateLogger retrieves logger from context or creates a default one.
+// Ensures zerologr defaults are initialized on first call.
 func getOrCreateLogger(ctx context.Context) logr.Logger {
+	initZerologrDefaults()
+
 	return zerologger.LogrFromContextOrDefault(ctx)
 }
 
