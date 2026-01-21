@@ -13,9 +13,9 @@ import (
 // Tracer is the global tracer instance.
 //
 // Deprecated: Use GetTracer(ctx) for direct tracer access, or preferably use the
-// type-safe SpanLogger API: CreateSpan, CreateSpanWithOptions, CreateRootSpanWithOptions,
-// or convenience functions (CreateServerSpan, CreateClientSpan, CreateProducerSpan,
-// CreateConsumerSpan). Will be removed in v2.0.
+// type-safe SpanLogger API: CreateLogSpan, CreateLogSpanWithOptions, CreateRootLogSpanWithOptions,
+// or convenience functions (CreateServerLogSpan, CreateClientLogSpan, CreateProducerLogSpan,
+// CreateConsumerLogSpan). Will be removed in v2.0.
 //
 // Reason: Global tracer doesn't support provider changes, test isolation, or context-based injection.
 // The new trace management system with smart resolution is more flexible and test-friendly.
@@ -25,7 +25,7 @@ import (
 // This variable is NOT set directly by SetupOTelSDKWithOptions(). Instead:
 //
 //  1. SetupOTelSDKWithOptions() calls otel.SetTracerProvider(provider)
-//  2. When you first create a span (CreateSpan/CreateRootSpan/etc.), GetTracer(ctx) is called
+//  2. When you first create a span (CreateLogSpan/CreateRootLogSpan/etc.), GetTracer(ctx) is called
 //  3. GetTracer() creates a tracer from the provider and caches it
 //  4. As part of caching, this Tracer variable is automatically synced for backward compatibility
 //
@@ -43,10 +43,10 @@ import (
 //     trace.WithSpanKind(trace.SpanKindClient),
 //     trace.WithAttributes(attribute.String("key", "value")),
 //     )
-//   - NEW (convenience): ctx, logger := instrumentation.CreateClientSpan(ctx, "op",
+//   - NEW (convenience): ctx, logger := instrumentation.CreateClientLogSpan(ctx, "op",
 //     trace.WithAttributes(attribute.String("key", "value")),
 //     )
-//   - NEW (convenience + key-values): ctx, logger := instrumentation.CreateClientSpan(ctx, "op")
+//   - NEW (convenience + key-values): ctx, logger := instrumentation.CreateClientLogSpan(ctx, "op")
 //     ctx, logger = logger.WithValues("key", "value")  // Enrich logger and span
 //
 // Application code - Direct tracer access (advanced use only):
@@ -167,9 +167,9 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 
 // GetSpanForContext creates or retrieves a span from context.
 //
-// Deprecated: Use CreateSpan, CreateSpanWithOptions, CreateRootSpanWithOptions,
-// convenience functions (CreateServerSpan, CreateClientSpan, CreateProducerSpan,
-// CreateConsumerSpan), or CurrentSpanLogger instead.
+// Deprecated: Use CreateLogSpan, CreateLogSpanWithOptions, CreateRootLogSpanWithOptions,
+// convenience functions (CreateServerLogSpan, CreateClientLogSpan, CreateProducerLogSpan,
+// CreateConsumerLogSpan), or CurrentSpanLogger instead.
 //
 // Reason: Returns raw trace.Span without integrated logging, requires manual trace ID correlation,
 // and has confusing empty-string overload. The new SpanLogger API unifies logging and tracing,
@@ -178,7 +178,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 // Migration:
 //   - For child spans with key-values: instrumentation.CreateLogSpan(ctx, "operation", keysAndValues...)
 //   - For child spans with options: instrumentation.CreateLogSpanWithOptions(ctx, "operation", opts...)
-//   - For convenience functions: instrumentation.CreateClientSpan(ctx, "operation", opts...)
+//   - For convenience functions: instrumentation.CreateClientLogSpan(ctx, "operation", keysAndValues...)
 //   - For root spans: instrumentation.CreateRootLogSpan(ctx, "operation", keysAndValues...)
 //   - For accessing current span: instrumentation.CurrentSpanLogger(ctx) or trace.SpanFromContext(ctx)
 //
@@ -194,11 +194,11 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 //	ctx, span := instrumentation.GetSpanForContext(ctx, "operation", "key", "value")
 //	defer span.End()
 //
-//	// New: Use CreateSpan (with key-values)
+//	// New: Use CreateLogSpan (with key-values)
 //	ctx, logger := instrumentation.CreateLogSpan(ctx, "operation", "key", "value")
 //	defer logger.End()  // Returns SpanLogger with integrated logging
 //
-//	// New: Use CreateSpanWithOptions (type-safe with OTel options)
+//	// New: Use CreateLogSpanWithOptions (type-safe with OTel options)
 //	ctx, logger := instrumentation.CreateLogSpanWithOptions(ctx, "operation",
 //	    trace.WithSpanKind(trace.SpanKindClient),
 //	    trace.WithAttributes(attribute.String("key", "value")),
@@ -206,9 +206,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 //	defer logger.End()
 //
 //	// New: Use convenience functions
-//	ctx, logger := instrumentation.CreateClientSpan(ctx, "operation",
-//	    trace.WithAttributes(attribute.String("key", "value")),
-//	)
+//	ctx, logger := instrumentation.CreateClientLogSpan(ctx, "operation", "key", "value")
 //	defer logger.End()
 //
 //	// Old: Accessing current span
@@ -234,9 +232,9 @@ func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (
 
 // GetLogSpan creates or reuses a logger from context and creates a span for an operation.
 //
-// Deprecated: Use CreateSpan, CreateSpanWithOptions, CreateRootSpanWithOptions,
-// convenience functions (CreateServerSpan, CreateClientSpan, CreateProducerSpan,
-// CreateConsumerSpan), or CurrentSpanLogger instead.
+// Deprecated: Use CreateLogSpan, CreateLogSpanWithOptions, CreateRootLogSpanWithOptions,
+// convenience functions (CreateServerLogSpan, CreateClientLogSpan, CreateProducerLogSpan,
+// CreateConsumerLogSpan), or CurrentSpanLogger instead.
 //
 // Reason: Confusing empty-string overload (name="" reuses span, name="op" creates span).
 // Returns separate logger and end() function instead of unified SpanLogger type.
@@ -263,13 +261,7 @@ func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (
 // CASE 3: Creating spans with common span kinds (convenience functions)
 //
 //	Old: // Not possible with GetLogSpan
-//	New (with OTel options): ctx, logger := instrumentation.CreateClientSpan(ctx, "operation",
-//	         trace.WithAttributes(attribute.String("key", "value")),
-//	     )
-//	     defer logger.End()
-//
-//	New (with key-values): ctx, logger := instrumentation.CreateClientSpan(ctx, "operation")
-//	     ctx, logger = logger.WithValues("key", "value")  // Enriched logger and span
+//	New: ctx, logger := instrumentation.CreateClientLogSpan(ctx, "operation", "key", "value")
 //	     defer logger.End()
 //
 // CASE 4: Creating a root span (breaking parent chain)
@@ -286,8 +278,8 @@ func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (
 // IMPORTANT: Case 5 now returns *SpanLoggerView which cannot call End() (type safety).
 // This prevents accidentally ending a span you don't own.
 //
-// Use CreateSpan for child spans with key-values, CreateSpanWithOptions for type-safe
-// options, convenience functions for common span kinds, CreateRootSpan for independent
+// Use CreateLogSpan for child spans with key-values, CreateLogSpanWithOptions for type-safe
+// options, convenience functions for common span kinds, CreateRootLogSpan for independent
 // traces, and CurrentSpanLogger for logging under the current span.
 //
 // IMPORTANT: A logger MUST be stored in context before calling GetLogSpan, otherwise a

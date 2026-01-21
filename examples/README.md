@@ -100,7 +100,7 @@ go run ./examples/http_tracing
 ```
 
 **Demonstrates:**
-- All three API functions (`CreateSpan`, `CurrentSpanLogger`, `CreateRootSpan`)
+- All three API functions (`CreateLogSpan`, `CurrentSpanLogger`, `CreateRootLogSpan`)
 - HTTP server with tracing middleware
 - HTTP client with automatic trace propagation
 - Distributed tracing across service boundaries
@@ -206,9 +206,9 @@ defer logger.End()
 - No compile-time safety for span ownership
 
 **The Solution:** Three functions with clear semantics:
-1. **`CreateSpan`** - You own it, you end it (enforced by type system)
+1. **`CreateLogSpan`** - You own it, you end it (enforced by type system)
 2. **`CurrentSpanLogger`** - You borrow it, can't end it (compile-time error if you try)
-3. **`CreateRootSpan`** - You own it, new trace (explicit about breaking parent chain)
+3. **`CreateRootLogSpan`** - You own it, new trace (explicit about breaking parent chain)
 
 ## Best Practices
 

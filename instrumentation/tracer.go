@@ -28,13 +28,13 @@ type tracerKey struct{}
 // # When to Use GetTracer
 //
 // Use this ONLY when you need direct access to the OpenTelemetry tracer API
-// and cannot use CreateSpanWithOptions/CreateRootSpanWithOptions. Common reasons:
+// and cannot use CreateLogSpanWithOptions/CreateRootLogSpanWithOptions. Common reasons:
 //   - Need to create spans without SpanLogger integration (performance-critical zero-allocation paths)
 //   - Integration with third-party libraries expecting trace.Tracer
 //   - Custom span lifecycle management not supported by SpanLogger
 //   - Need OpenTelemetry span options not yet wrapped by this library
 //
-// For most use cases, prefer CreateSpanWithOptions with trace.SpanStartOption arguments.
+// For most use cases, prefer CreateLogSpanWithOptions with trace.SpanStartOption arguments.
 //
 // # Loss of SpanLogger Integration
 //

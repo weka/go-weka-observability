@@ -52,7 +52,7 @@ func TestLogSpan() {
 }
 
 func outerFunc(ctx context.Context) {
-	// CreateSpan creates a new child span that you own
+	// CreateLogSpan creates a new child span that you own
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "outerFunc")
 	defer logger.End()
 
@@ -63,7 +63,7 @@ func outerFunc(ctx context.Context) {
 }
 
 func innerFunc1(ctx context.Context) {
-	// CreateSpan creates a new child span
+	// CreateLogSpan creates a new child span
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "innerFunc1")
 	defer logger.End()
 
@@ -71,7 +71,7 @@ func innerFunc1(ctx context.Context) {
 }
 
 func innerFunc2(ctx context.Context) {
-	// CreateSpan creates a new child span
+	// CreateLogSpan creates a new child span
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "innerFunc2")
 	defer logger.End()
 

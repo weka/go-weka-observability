@@ -276,7 +276,7 @@ The library provides a **type-safe API** with zero `any` usage for span configur
 
 ### API Functions
 
-#### `CreateSpanWithOptions` - Type-Safe Child Span
+#### `CreateLogSpanWithOptions` - Type-Safe Child Span
 
 ```go
 func CreateLogSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
@@ -349,7 +349,7 @@ func processAsyncTask(ctx context.Context, taskID string, originSpanContext trac
 //   ctx, logger := instrumentation.CreateServerLogSpan(ctx, "operation", "key", "value")
 ```
 
-#### `CreateRootSpanWithOptions` - Type-Safe Root Span
+#### `CreateRootLogSpanWithOptions` - Type-Safe Root Span
 
 ```go
 func CreateRootLogSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger)
@@ -379,9 +379,9 @@ func backgroundJob(ctx context.Context, jobID string, jobType string) error {
 
 ### Convenience Functions (Recommended for Common Cases)
 
-Pre-configured functions for common span kinds. These are thin wrappers around `CreateSpanWithOptions` that automatically set the correct `trace.WithSpanKind()`.
+Pre-configured functions for common span kinds. These are thin wrappers around `CreateLogSpanWithOptions` that automatically set the correct `trace.WithSpanKind()`.
 
-#### `CreateServerSpan` - HTTP/gRPC Servers
+#### `CreateServerLogSpan` - HTTP/gRPC Servers
 
 ```go
 func CreateServerLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger)
@@ -408,7 +408,7 @@ func handleHTTPRequest(ctx context.Context, r *http.Request) error {
 }
 ```
 
-#### `CreateClientSpan` - HTTP/gRPC Clients
+#### `CreateClientLogSpan` - HTTP/gRPC Clients
 
 ```go
 func CreateClientLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger)
@@ -440,7 +440,7 @@ func callExternalAPI(ctx context.Context, url string) (*Response, error) {
 }
 ```
 
-#### `CreateProducerSpan` - Message Publishers
+#### `CreateProducerLogSpan` - Message Publishers
 
 ```go
 func CreateProducerLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger)
@@ -468,7 +468,7 @@ func publishMessage(ctx context.Context, topic string, msg []byte) error {
 }
 ```
 
-#### `CreateConsumerSpan` - Message Consumers
+#### `CreateConsumerLogSpan` - Message Consumers
 
 ```go
 func CreateConsumerLogSpan(ctx context.Context, name string, keysAndValues ...any) (context.Context, *SpanLogger)
@@ -551,15 +551,15 @@ func processRequest(ctx context.Context, requestID string, userID int) error {
 
 ```
 Need to create a span with specific configuration?
-├─ Handling incoming HTTP/gRPC request? → CreateServerSpan
-├─ Making outgoing HTTP/gRPC call? → CreateClientSpan
-├─ Publishing message to queue? → CreateProducerSpan
-├─ Consuming message from queue? → CreateConsumerSpan
-├─ Need custom span options (links, timestamp)? → CreateSpanWithOptions
-├─ Independent trace (background job)? → CreateRootSpanWithOptions
+├─ Handling incoming HTTP/gRPC request? → CreateServerLogSpan
+├─ Making outgoing HTTP/gRPC call? → CreateClientLogSpan
+├─ Publishing message to queue? → CreateProducerLogSpan
+├─ Consuming message from queue? → CreateConsumerLogSpan
+├─ Need custom span options (links, timestamp)? → CreateLogSpanWithOptions
+├─ Independent trace (background job)? → CreateRootLogSpanWithOptions
 ├─ Simple logging under current span? → CurrentSpanLogger
 ├─ Need raw tracer (advanced use)? → GetTracer
-└─ Simple child span with key-values? → CreateSpan (legacy, still works)
+└─ Simple child span with key-values? → CreateLogSpan
 ```
 
 ## Migration from GetLogSpan
@@ -616,9 +616,9 @@ defer logger.End()
 
 ### Unit Tests
 **Covered**: All three API functions and both span types
-- `TestCreateSpan_CreatesOwnedSpan` - Verifies span ownership and End() requirement
-- `TestCreateSpan_CreatesChildSpan` - Validates parent-child relationships
-- `TestCreateRootSpan_BreaksParentChain` - Confirms independent trace IDs
+- `TestCreateLogSpan_CreatesOwnedSpan` - Verifies span ownership and End() requirement
+- `TestCreateLogSpan_CreatesChildSpan` - Validates parent-child relationships
+- `TestCreateRootLogSpan_BreaksParentChain` - Confirms independent trace IDs
 - `TestCurrentSpanLogger_ReturnsBorrowedSpan` - Validates view behavior
 - `TestSpanLoggerLoggingMethods` - Verifies all logging methods work and create span events
 - `TestSpanLoggerViewLoggingMethods` - Ensures view can log but not end

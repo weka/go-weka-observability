@@ -12,7 +12,7 @@ import (
 )
 
 // Example demonstrating type-safe span creation with OpenTelemetry options.
-// This example shows how to use CreateSpanWithOptions, CreateRootSpanWithOptions,
+// This example shows how to use CreateLogSpanWithOptions, CreateRootLogSpanWithOptions,
 // and convenience functions for common span kinds.
 func main() {
 	ctx := context.Background()
@@ -42,7 +42,7 @@ func main() {
 }
 
 func demonstrateTypeSefeSpanCreation(ctx context.Context) {
-	// Example 1: CreateSpanWithOptions for type-safe span creation
+	// Example 1: CreateLogSpanWithOptions for type-safe span creation
 	ctx, dbLogger := instrumentation.CreateLogSpanWithOptions(ctx, "database-query",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
@@ -61,7 +61,7 @@ func demonstrateTypeSefeSpanCreation(ctx context.Context) {
 	// Example 2: Convenience functions for common span kinds
 	demonstrateConvenienceFunctions(ctx)
 
-	// Example 3: CreateRootSpanWithOptions for independent traces
+	// Example 3: CreateRootLogSpanWithOptions for independent traces
 	demonstrateRootSpanWithOptions(ctx)
 
 	// Example 4: Advanced - GetTracer for direct tracer access
@@ -119,7 +119,7 @@ func demonstrateConvenienceFunctions(ctx context.Context) {
 }
 
 func demonstrateRootSpanWithOptions(ctx context.Context) {
-	// CreateRootSpanWithOptions creates a new independent trace
+	// CreateRootLogSpanWithOptions creates a new independent trace
 	// (breaks parent span relationship, starts new trace ID)
 	_, jobLogger := instrumentation.CreateRootLogSpanWithOptions(ctx, "background-cleanup-job",
 		trace.WithSpanKind(trace.SpanKindInternal),

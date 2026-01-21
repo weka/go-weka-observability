@@ -394,7 +394,7 @@ func main() {
 	// Create HTTP client
 	client := NewHTTPClient("http://localhost:8080")
 
-	// EXAMPLE: CreateRootSpan - Start a new independent trace for client workflow
+	// EXAMPLE: CreateRootLogSpan - Start a new independent trace for client workflow
 	// This breaks the parent chain and creates a new trace ID
 	// Use this for background jobs or operations that should be tracked independently
 	ctx, rootLogger := instrumentation.CreateRootLogSpan(ctx, "client.workflow")
@@ -404,7 +404,7 @@ func main() {
 
 	// Demonstrate multiple HTTP calls within the same trace
 
-	// 1. Health check - EXAMPLE: CreateSpan for child operation
+	// 1. Health check - EXAMPLE: CreateLogSpan for child operation
 	healthCheckCtx, healthLogger := instrumentation.CreateLogSpan(ctx, "workflow.health_check")
 	healthResp, err := client.Get(healthCheckCtx, "/health")
 	if err != nil {
@@ -414,7 +414,7 @@ func main() {
 	}
 	healthLogger.End()
 
-	// 2. Data retrieval - EXAMPLE: CreateSpan for child operation
+	// 2. Data retrieval - EXAMPLE: CreateLogSpan for child operation
 	getDataCtx, dataLogger := instrumentation.CreateLogSpan(ctx, "workflow.get_data")
 	dataResp, err := client.Get(getDataCtx, "/api/data")
 	if err != nil {
@@ -426,7 +426,7 @@ func main() {
 	}
 	dataLogger.End()
 
-	// 3. Data processing - EXAMPLE: CreateSpan for child operation
+	// 3. Data processing - EXAMPLE: CreateLogSpan for child operation
 	processDataCtx, processLogger := instrumentation.CreateLogSpan(ctx, "workflow.process_data")
 	processResp, err := client.Post(processDataCtx, "/api/process", map[string]string{
 		"input": "sample_data_for_processing",
