@@ -31,6 +31,7 @@ linters:
     - gocheckcompilerdirectives # Check that no compiler directives are used
     - prealloc # Check for slice allocations inside loops
     - predeclared # Check for redeclared predeclared identifiers
+    - iotamixing # iota mixing with other constants causes a nasty bug
     - tagliatelle # Checks for the correctness, consistency and readability of struct tags
 
     - copyloopvar # Detects common mistakes when copying a loop variable to a closure
@@ -55,6 +56,8 @@ linters:
     - gocognit # [Style] Detects high cognitive complexity functions
     - maintidx # [Style] Check for maintenance indexes
     - revive # General purpose linter - enforces coding standards and best practices
+    - godoclint # Documentation correctness - ensures godocs follow Go conventions
+    - modernize # Check for modern Go features
     - dupl # Detect duplicate code
     - funlen # Check for long functions
     - funcorder # Check for function order: public functions should be above private functions
@@ -151,12 +154,27 @@ linters:
         - name: unused-parameter
         - name: unreachable-code
         - name: redefines-builtin-id
+        - name: identical-ifelseif-branches
+        - name: identical-ifelseif-conditions
+        - name: identical-switch-branches
+        - name: identical-switch-conditions
+        - name: package-directory-mismatch
+        - name: use-waitgroup-go
+        - name: useless-fallthrough
+        - name: forbidden-call-in-wg-go
+        - name: unnecessary-if
+        - name: inefficient-map-lookup
     tagliatelle:
       case:
         rules:
           json: snake
           mapstructure: snake
           yaml: snake
+    godoclint:
+      require-doc: true
+      require-pkg-doc: true
+      no-unused-link: true
+      require-stdlib-doclink: true
   exclusions:
     generated: lax
     rules:
@@ -186,6 +204,9 @@ linters:
           - revive
         path: ^examples/
         text: package-comments
+      - linters:
+          - godoclint
+        path: _test\.go$
     paths:
       - third_party$
       - builtin$
