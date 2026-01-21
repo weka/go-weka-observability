@@ -6,19 +6,21 @@ import (
 	"github.com/kelseyhightower/envconfig"
 )
 
-// OTelConfig configures OpenTelemetry SDK behavior.
-// Follows the same pattern as logger.Config with environment variable overrides.
-type OTelConfig struct {
-	// Endpoint is the OTLP exporter endpoint (e.g., "http://localhost:4317")
-	// Empty string means no traces will be exported
-	Endpoint string `envconfig:"EXPORTER_OTLP_ENDPOINT"`
+type (
+	// OTelConfig configures OpenTelemetry SDK behavior.
+	// Follows the same pattern as logger.Config with environment variable overrides.
+	OTelConfig struct {
+		// Endpoint is the OTLP exporter endpoint (e.g., "http://localhost:4317")
+		// Empty string means no traces will be exported
+		Endpoint string `envconfig:"EXPORTER_OTLP_ENDPOINT"`
 
-	// ResourceAttributes are additional key-value pairs attached to all spans
-	ResourceAttributes []any
-}
+		// ResourceAttributes are additional key-value pairs attached to all spans
+		ResourceAttributes []any
+	}
 
-// OTelOption configures OTelConfig via functional options pattern
-type OTelOption func(*OTelConfig)
+	// OTelOption configures OTelConfig via functional options pattern
+	OTelOption func(*OTelConfig)
+)
 
 // DefaultOTelConfig returns default OpenTelemetry configuration.
 // By default, no endpoint is set, meaning traces will not be exported.

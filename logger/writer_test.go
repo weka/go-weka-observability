@@ -13,142 +13,123 @@ import (
 	"github.com/weka/go-weka-observability/logger"
 )
 
-// TestLevelComparators tests the level comparison functions used for routing logs
-func TestLevelComparators(t *testing.T) {
-	tests := []struct {
-		name            string
-		level           zerolog.Level
-		expectInfoFile  bool
-		expectErrorFile bool
-	}{
-		{
-			name:            "TraceLevel routes to info writer",
-			level:           zerolog.TraceLevel,
-			expectInfoFile:  true,
-			expectErrorFile: false,
-		},
-		{
-			name:            "DebugLevel routes to info writer",
-			level:           zerolog.DebugLevel,
-			expectInfoFile:  true,
-			expectErrorFile: false,
-		},
-		{
-			name:            "InfoLevel routes to info writer",
-			level:           zerolog.InfoLevel,
-			expectInfoFile:  true,
-			expectErrorFile: false,
-		},
-		{
-			name:            "WarnLevel routes to error writer",
-			level:           zerolog.WarnLevel,
-			expectInfoFile:  false,
-			expectErrorFile: true,
-		},
-		{
-			name:            "ErrorLevel routes to error writer",
-			level:           zerolog.ErrorLevel,
-			expectInfoFile:  false,
-			expectErrorFile: true,
-		},
-		{
-			name:            "FatalLevel routes to error writer",
-			level:           zerolog.FatalLevel,
-			expectInfoFile:  false,
-			expectErrorFile: true,
-		},
-		{
-			name:            "PanicLevel routes to error writer",
-			level:           zerolog.PanicLevel,
-			expectInfoFile:  false,
-			expectErrorFile: true,
-		},
-		{
-			name:            "NoLevel routes to error writer (special case)",
-			level:           zerolog.NoLevel,
-			expectInfoFile:  false,
-			expectErrorFile: true,
-		},
+// levelRoutingResult holds the captured output from multi-level writer test.
+type levelRoutingResult struct {
+	infoContent  string
+	errorContent string
+}
+
+// writeLogAtLevel writes a log message at the specified level using WithLevel for all levels.
+// This avoids special behavior like os.Exit (Fatal) or panic (Panic).
+//
+//nolint:gocritic // hugeParam: test helper - performance not critical
+func writeLogAtLevel(log zerolog.Logger, level zerolog.Level, msg string) {
+	log.WithLevel(level).Msg(msg)
+}
+
+// testLogConfig returns a standard config for multi-level writer tests.
+func testLogConfig() logger.Config {
+	return logger.Config{
+		Sink:   logger.SinkConfig{Mode: logger.ConsoleMode},
+		Format: logger.FormatConfig{Format: logger.LogFormatJSON, Level: zerolog.TraceLevel},
+	}
+}
+
+// captureStdoutWithMultiLevelWriter captures stdout output when logging with GetMultiLevelWriterWithConfig.
+func captureStdoutWithMultiLevelWriter(t *testing.T, testMsg string, level zerolog.Level) []byte {
+	t.Helper()
+	config := testLogConfig()
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	defer func() { os.Stdout = origStdout }()
+
+	writer := logger.GetMultiLevelWriterWithConfig(config)
+	log := zerolog.New(writer).Level(config.Format.Level).With().Timestamp().Logger()
+	writeLogAtLevel(log, level, testMsg)
+
+	require.NoError(t, w.Close())
+	output, err := io.ReadAll(r)
+	require.NoError(t, err)
+
+	return output
+}
+
+// captureStderrWithMultiLevelWriter captures stderr output when logging with GetMultiLevelWriterWithConfig.
+func captureStderrWithMultiLevelWriter(t *testing.T, testMsg string, level zerolog.Level) []byte {
+	t.Helper()
+	config := testLogConfig()
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+	defer func() { os.Stderr = origStderr }()
+
+	writer := logger.GetMultiLevelWriterWithConfig(config)
+	log := zerolog.New(writer).Level(config.Format.Level).With().Timestamp().Logger()
+	writeLogAtLevel(log, level, testMsg)
+
+	require.NoError(t, w.Close())
+	output, err := io.ReadAll(r)
+	require.NoError(t, err)
+
+	return output
+}
+
+// testLevelRouting tests a single level routing and returns captured content
+func testLevelRouting(level zerolog.Level, msg string) levelRoutingResult {
+	infoBuffer := &bytes.Buffer{}
+	errorBuffer := &bytes.Buffer{}
+
+	infoWriter := logger.SpecificLevelWriter{
+		Writer:      infoBuffer,
+		ShouldWrite: func(l zerolog.Level) bool { return l < zerolog.WarnLevel },
+	}
+	errorWriter := logger.SpecificLevelWriter{
+		Writer:      errorBuffer,
+		ShouldWrite: func(l zerolog.Level) bool { return l >= zerolog.WarnLevel },
+	}
+	multiWriter := zerolog.MultiLevelWriter(infoWriter, errorWriter)
+	log := zerolog.New(multiWriter).Level(zerolog.TraceLevel).With().Timestamp().Logger()
+
+	writeLogAtLevel(log, level, msg)
+
+	return levelRoutingResult{
+		infoContent:  infoBuffer.String(),
+		errorContent: errorBuffer.String(),
+	}
+}
+
+// TestLevelComparators_InfoLevelsRouteToInfoWriter tests that trace/debug/info route to info writer
+func TestLevelComparators_InfoLevelsRouteToInfoWriter(t *testing.T) {
+	infoLevels := []zerolog.Level{zerolog.TraceLevel, zerolog.DebugLevel, zerolog.InfoLevel}
+
+	for _, level := range infoLevels {
+		t.Run(level.String(), func(t *testing.T) {
+			msg := "test message for " + level.String()
+			result := testLevelRouting(level, msg)
+
+			assert.Contains(t, result.infoContent, msg, "Level %s should route to info writer", level)
+			assert.Empty(t, result.errorContent, "Level %s should NOT route to error writer", level)
+		})
+	}
+}
+
+// TestLevelComparators_ErrorLevelsRouteToErrorWriter tests that warn/error/fatal/panic route to error writer
+func TestLevelComparators_ErrorLevelsRouteToErrorWriter(t *testing.T) {
+	errorLevels := []zerolog.Level{
+		zerolog.WarnLevel, zerolog.ErrorLevel, zerolog.FatalLevel,
+		zerolog.PanicLevel, zerolog.NoLevel,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create separate buffers for info and error writers
-			infoBuffer := &bytes.Buffer{}
-			errorBuffer := &bytes.Buffer{}
+	for _, level := range errorLevels {
+		t.Run(level.String(), func(t *testing.T) {
+			msg := "test message for " + level.String()
+			result := testLevelRouting(level, msg)
 
-			// Create config with file mode to enable level separation
-			config := logger.Config{
-				Sink: logger.SinkConfig{
-					Mode:       logger.ConsoleMode, // Use console to avoid file creation
-					MaxSizeMB:  100,
-					MaxFiles:   5,
-					MaxAgeDays: 28,
-				},
-				Format: logger.FormatConfig{
-					Level:        zerolog.TraceLevel, // Capture all levels
-					Format:       logger.LogFormatJSON,
-					TimeOnly:     false,
-					CallerDirLvl: -1,
-				},
-			}
-
-			// Create multi-level writer manually with test buffers
-			infoWriter := logger.SpecificLevelWriter{
-				Writer:      infoBuffer,
-				ShouldWrite: func(level zerolog.Level) bool { return level < zerolog.WarnLevel },
-			}
-			errorWriter := logger.SpecificLevelWriter{
-				Writer:      errorBuffer,
-				ShouldWrite: func(level zerolog.Level) bool { return level >= zerolog.WarnLevel },
-			}
-			multiWriter := zerolog.MultiLevelWriter(infoWriter, errorWriter)
-
-			// Create logger with the multi-level writer
-			log := zerolog.New(multiWriter).Level(config.Format.Level).With().Timestamp().Logger()
-
-			// Write a log at the test level
-			testMessage := "test message for level routing"
-			switch tt.level {
-			case zerolog.TraceLevel:
-				log.Trace().Msg(testMessage)
-			case zerolog.DebugLevel:
-				log.Debug().Msg(testMessage)
-			case zerolog.InfoLevel:
-				log.Info().Msg(testMessage)
-			case zerolog.WarnLevel:
-				log.Warn().Msg(testMessage)
-			case zerolog.ErrorLevel:
-				log.Error().Msg(testMessage)
-			case zerolog.FatalLevel:
-				// Use WithLevel to avoid os.Exit
-				log.WithLevel(zerolog.FatalLevel).Msg(testMessage)
-			case zerolog.PanicLevel:
-				// Use WithLevel to avoid panic
-				log.WithLevel(zerolog.PanicLevel).Msg(testMessage)
-			case zerolog.NoLevel:
-				log.WithLevel(zerolog.NoLevel).Msg(testMessage)
-			}
-
-			// Verify routing
-			infoContent := infoBuffer.String()
-			errorContent := errorBuffer.String()
-
-			if tt.expectInfoFile {
-				assert.Contains(t, infoContent, testMessage,
-					"Expected level %s to be routed to info writer", tt.level)
-				assert.Empty(t, errorContent,
-					"Expected level %s NOT to be routed to error writer", tt.level)
-			} else if tt.expectErrorFile {
-				assert.Contains(t, errorContent, testMessage,
-					"Expected level %s to be routed to error writer", tt.level)
-				assert.Empty(t, infoContent,
-					"Expected level %s NOT to be routed to info writer", tt.level)
-			} else {
-				// Both should be empty for disabled levels
-				assert.Empty(t, infoContent, "Expected no output for disabled level")
-				assert.Empty(t, errorContent, "Expected no output for disabled level")
-			}
+			assert.Contains(t, result.errorContent, msg, "Level %s should route to error writer", level)
+			assert.Empty(t, result.infoContent, "Level %s should NOT route to info writer", level)
 		})
 	}
 }
@@ -191,7 +172,7 @@ func TestSpecificLevelWriter_WriteLevel(t *testing.T) {
 		buf := &bytes.Buffer{}
 		writer := logger.SpecificLevelWriter{
 			Writer:      buf,
-			ShouldWrite: func(level zerolog.Level) bool { return true },
+			ShouldWrite: func(_ zerolog.Level) bool { return true },
 		}
 
 		testData := []byte("test log message")
@@ -206,7 +187,7 @@ func TestSpecificLevelWriter_WriteLevel(t *testing.T) {
 		buf := &bytes.Buffer{}
 		writer := logger.SpecificLevelWriter{
 			Writer:      buf,
-			ShouldWrite: func(level zerolog.Level) bool { return false },
+			ShouldWrite: func(_ zerolog.Level) bool { return false },
 		}
 
 		testData := []byte("test log message")
@@ -239,165 +220,84 @@ func TestBackwardCompatibility_GetMultiLevelWriter(t *testing.T) {
 	})
 }
 
-// TestBackwardCompatibility_ConsoleModeUsesMultiLevelWriter ensures the new config-based
-// logger initialization matches GetMultiLevelWriter behavior
+// TestBackwardCompatibility_GetStderrWriter ensures GetStderrWriter returns direct stderr
+func TestBackwardCompatibility_GetStderrWriter(t *testing.T) {
+	writer := logger.GetStderrWriter()
+	assert.Equal(t, os.Stderr, writer, "GetStderrWriter should return os.Stderr directly")
+}
+
+// TestBackwardCompatibility_ConsoleModeUsesMultiLevelWriter ensures config-based writer returns multi-level
 func TestBackwardCompatibility_ConsoleModeUsesMultiLevelWriter(t *testing.T) {
-	t.Run("GetStderrWriter returns direct stderr writer", func(t *testing.T) {
-		// GetStderrWriter is for stderr-only output
-		writer := logger.GetStderrWriter()
+	config := logger.Config{
+		Sink:   logger.DefaultSinkConfig(),
+		Format: logger.DefaultFormatConfig(),
+	}
+	writer := logger.GetMultiLevelWriterWithConfig(config)
 
-		// Should return os.Stderr directly (for default JSON format)
-		assert.Equal(t, os.Stderr, writer,
-			"GetStderrWriter should return os.Stderr directly")
-	})
+	assert.NotEqual(t, os.Stderr, writer,
+		"GetMultiLevelWriterWithConfig with ConsoleMode should return multi-level writer, not direct stderr")
+	assert.NotEqual(t, os.Stdout, writer,
+		"GetMultiLevelWriterWithConfig with ConsoleMode should return multi-level writer, not direct stdout")
+	assert.NotNil(t, writer, "Writer should not be nil")
+}
 
-	t.Run("GetMultiLevelWriterWithConfig in ConsoleMode uses multi-level writer", func(t *testing.T) {
-		// New way: GetMultiLevelWriterWithConfig with ConsoleMode
-		config := logger.Config{
-			Sink:   logger.DefaultSinkConfig(), // ConsoleMode by default
-			Format: logger.DefaultFormatConfig(),
+// TestBackwardCompatibility_InfoRoutesToStdout ensures info level routes to stdout
+func TestBackwardCompatibility_InfoRoutesToStdout(t *testing.T) {
+	testMsg := "test_info_message_12345"
+	output := captureStdoutWithMultiLevelWriter(t, testMsg, zerolog.InfoLevel)
+	assert.Contains(t, string(output), testMsg, "Info message should be routed to stdout")
+}
+
+// TestBackwardCompatibility_ErrorRoutesToStderr ensures error level routes to stderr
+func TestBackwardCompatibility_ErrorRoutesToStderr(t *testing.T) {
+	testMsg := "test_error_message_67890"
+	output := captureStderrWithMultiLevelWriter(t, testMsg, zerolog.ErrorLevel)
+	assert.Contains(t, string(output), testMsg, "Error message should be routed to stderr")
+}
+
+// captureStdoutForWriter captures stdout when logging with a specific writer.
+func captureStdoutForWriter(t *testing.T, createWriter func() io.Writer, testMsg string) []byte {
+	t.Helper()
+	origStdout := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
+	os.Stdout = w
+	defer func() { os.Stdout = origStdout }()
+
+	writer := createWriter()
+	log := zerolog.New(writer).Level(zerolog.TraceLevel).With().Timestamp().Logger()
+	log.Info().Msg(testMsg)
+
+	require.NoError(t, w.Close())
+	output, err := io.ReadAll(r)
+	require.NoError(t, err)
+
+	return output
+}
+
+// TestBackwardCompatibility_IdenticalRouting ensures both writer functions route identically
+func TestBackwardCompatibility_IdenticalRouting(t *testing.T) {
+	testMsg := "identical_routing_test_99999"
+
+	require.NoError(t, os.Setenv("LOG_FORMAT", "json"))
+	defer func() {
+		if err := os.Unsetenv("LOG_FORMAT"); err != nil {
+			t.Logf("failed to unset LOG_FORMAT: %v", err)
 		}
-		writer := logger.GetMultiLevelWriterWithConfig(config)
+	}()
 
-		// Should return multi-level writer (NOT direct stderr)
-		assert.NotEqual(t, os.Stderr, writer,
-			"GetMultiLevelWriterWithConfig with ConsoleMode should return multi-level writer, not direct stderr")
-		assert.NotEqual(t, os.Stdout, writer,
-			"GetMultiLevelWriterWithConfig with ConsoleMode should return multi-level writer, not direct stdout")
-		assert.NotNil(t, writer, "Writer should not be nil")
-	})
+	output1 := captureStdoutForWriter(t, logger.GetMultiLevelWriter, testMsg)
 
-	t.Run("GetMultiLevelWriterWithConfig routes info to stdout", func(t *testing.T) {
-		// Test ACTUAL GetMultiLevelWriterWithConfig by capturing real stdout
-		config := logger.Config{
-			Sink: logger.SinkConfig{
-				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
-			},
-			Format: logger.FormatConfig{
-				Format: logger.LogFormatJSON,
-				Level:  zerolog.TraceLevel,
-			},
-		}
+	config := logger.Config{
+		Sink:   logger.SinkConfig{Mode: logger.ConsoleMode},
+		Format: logger.FormatConfig{Format: logger.LogFormatJSON, Level: zerolog.TraceLevel},
+	}
+	output2 := captureStdoutForWriter(t, func() io.Writer {
+		return logger.GetMultiLevelWriterWithConfig(config)
+	}, testMsg)
 
-		// Capture stdout using os.Pipe
-		origStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-		defer func() {
-			os.Stdout = origStdout
-		}()
-
-		// Create logger with ACTUAL GetMultiLevelWriterWithConfig
-		writer := logger.GetMultiLevelWriterWithConfig(config)
-		log := zerolog.New(writer).Level(config.Format.Level).With().Timestamp().Logger()
-
-		// Write info log (should go to stdout)
-		testMsg := "test_info_message_12345"
-		log.Info().Msg(testMsg)
-
-		// Close write end and read captured output
-		require.NoError(t, w.Close())
-		output, err := io.ReadAll(r)
-		require.NoError(t, err)
-
-		// Verify the message was routed to stdout
-		assert.Contains(t, string(output), testMsg,
-			"Info message should be routed to stdout")
-	})
-
-	t.Run("GetMultiLevelWriterWithConfig routes errors to stderr", func(t *testing.T) {
-		// Test ACTUAL GetMultiLevelWriterWithConfig by capturing real stderr
-		config := logger.Config{
-			Sink: logger.SinkConfig{
-				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
-			},
-			Format: logger.FormatConfig{
-				Format: logger.LogFormatJSON,
-				Level:  zerolog.TraceLevel,
-			},
-		}
-
-		// Capture stderr using os.Pipe
-		origStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-		defer func() {
-			os.Stderr = origStderr
-		}()
-
-		// Create logger with ACTUAL GetMultiLevelWriterWithConfig
-		writer := logger.GetMultiLevelWriterWithConfig(config)
-		log := zerolog.New(writer).Level(config.Format.Level).With().Timestamp().Logger()
-
-		// Write error log (should go to stderr)
-		testMsg := "test_error_message_67890"
-		log.Error().Msg(testMsg)
-
-		// Close write end and read captured output
-		require.NoError(t, w.Close())
-		output, err := io.ReadAll(r)
-		require.NoError(t, err)
-
-		// Verify the message was routed to stderr
-		assert.Contains(t, string(output), testMsg,
-			"Error message should be routed to stderr")
-	})
-
-	t.Run("GetMultiLevelWriter and GetMultiLevelWriterWithConfig route identically", func(t *testing.T) {
-		// Test that both functions produce identical routing behavior
-		testMsg := "identical_routing_test_99999"
-
-		// Test GetMultiLevelWriter - capture stdout
-		origStdout1 := os.Stdout
-		r1, w1, _ := os.Pipe()
-		os.Stdout = w1
-		defer func() {
-			os.Stdout = origStdout1
-			_ = os.Unsetenv("LOG_FORMAT")
-		}()
-
-		require.NoError(t, os.Setenv("LOG_FORMAT", "json"))
-		writer1 := logger.GetMultiLevelWriter()
-		log1 := zerolog.New(writer1).Level(zerolog.TraceLevel).With().Timestamp().Logger()
-		log1.Info().Msg(testMsg)
-
-		require.NoError(t, w1.Close())
-		os.Stdout = origStdout1
-		output1, err := io.ReadAll(r1)
-		require.NoError(t, err)
-
-		// Test GetMultiLevelWriterWithConfig - capture stdout
-		origStdout2 := os.Stdout
-		r2, w2, _ := os.Pipe()
-		os.Stdout = w2
-		defer func() {
-			os.Stdout = origStdout2
-		}()
-
-		config := logger.Config{
-			Sink: logger.SinkConfig{
-				Mode: logger.ConsoleMode,
-			},
-			Format: logger.FormatConfig{
-				Format: logger.LogFormatJSON,
-				Level:  zerolog.TraceLevel,
-			},
-		}
-		writer2 := logger.GetMultiLevelWriterWithConfig(config)
-		log2 := zerolog.New(writer2).Level(config.Format.Level).With().Timestamp().Logger()
-		log2.Info().Msg(testMsg)
-
-		require.NoError(t, w2.Close())
-		os.Stdout = origStdout2
-		output2, err2 := io.ReadAll(r2)
-		require.NoError(t, err2)
-
-		// Both should have routed the message to stdout
-		assert.Contains(t, string(output1), testMsg,
-			"GetMultiLevelWriter should route info to stdout")
-		assert.Contains(t, string(output2), testMsg,
-			"GetMultiLevelWriterWithConfig should route info to stdout")
-	})
+	assert.Contains(t, string(output1), testMsg, "GetMultiLevelWriter should route info to stdout")
+	assert.Contains(t, string(output2), testMsg, "GetMultiLevelWriterWithConfig should route info to stdout")
 }
 
 // TestFileMode_UsesMultiLevelWriter ensures FileMode uses multi-level writer for separation

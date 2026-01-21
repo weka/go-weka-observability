@@ -18,48 +18,55 @@ const (
 
 	// callerDisabled indicates that caller information should not be included in logs
 	callerDisabled = -1
+
+	// Default rotation configuration values
+	defaultMaxSizeMB  = 100 // Maximum log file size in megabytes before rotation
+	defaultMaxFiles   = 5   // Maximum number of backup files to keep
+	defaultMaxAgeDays = 28  // Maximum number of days to retain old log files
 )
 
-// SinkConfig configures where logs are written and how they're rotated.
-// This is the "destination" or "sink" for log messages.
-// Follows industry conventions from Serilog (.NET) and Zap (Go).
-type SinkConfig struct {
-	// Mode determines where logs are written (console or file)
-	Mode OutputMode `envconfig:"MODE"`
-	// Dir is the directory for log files (only used in FileMode)
-	Dir string `envconfig:"DIR"`
-	// FileName is the base name for log files (only used in FileMode)
-	FileName string `envconfig:"FILE_NAME"`
-	// MaxSizeMB is the maximum size of a log file before rotation (in megabytes)
-	MaxSizeMB int `envconfig:"MAX_SIZE_MB"`
-	// MaxFiles is the maximum number of log files to keep
-	MaxFiles int `envconfig:"MAX_FILES"`
-	// MaxAgeDays is the maximum number of days to retain old log files
-	MaxAgeDays int `envconfig:"MAX_AGE_DAYS"`
-}
+type (
+	// SinkConfig configures where logs are written and how they're rotated.
+	// This is the "destination" or "sink" for log messages.
+	// Follows industry conventions from Serilog (.NET) and Zap (Go).
+	SinkConfig struct {
+		// Mode determines where logs are written (console or file)
+		Mode OutputMode `envconfig:"MODE"`
+		// Dir is the directory for log files (only used in FileMode)
+		Dir string `envconfig:"DIR"`
+		// FileName is the base name for log files (only used in FileMode)
+		FileName string `envconfig:"FILE_NAME"`
+		// MaxSizeMB is the maximum size of a log file before rotation (in megabytes)
+		MaxSizeMB int `envconfig:"MAX_SIZE_MB"`
+		// MaxFiles is the maximum number of log files to keep
+		MaxFiles int `envconfig:"MAX_FILES"`
+		// MaxAgeDays is the maximum number of days to retain old log files
+		MaxAgeDays int `envconfig:"MAX_AGE_DAYS"`
+	}
 
-// FormatConfig configures how logs are presented.
-// This controls the visual appearance and filtering of log messages.
-type FormatConfig struct {
-	// Format is the output format (json/raw/plain)
-	Format LogFormat `envconfig:"FORMAT"`
+	// FormatConfig configures how logs are presented.
+	// This controls the visual appearance and filtering of log messages.
+	FormatConfig struct {
+		// Format is the output format (json/raw/plain)
+		Format LogFormat `envconfig:"FORMAT"`
 
-	// CallerDirLvl is the number of nested directories to display in caller field
-	CallerDirLvl int `envconfig:"CALLER_DIR_LVL"`
+		// CallerDirLvl is the number of nested directories to display in caller field
+		CallerDirLvl int `envconfig:"CALLER_DIR_LVL"`
 
-	// Level is the minimum log level to output. -1=trace, 0=debug, 1=info, 2=warn, 3=error, 4=fatal
-	Level zerolog.Level `envconfig:"LEVEL"`
+		// Level is the minimum log level to output. -1=trace, 0=debug, 1=info, 2=warn, 3=error, 4=fatal
+		Level zerolog.Level `envconfig:"LEVEL"`
 
-	// TimeOnly uses time-only format instead of full timestamp
-	TimeOnly bool `envconfig:"TIME_ONLY"`
-}
+		// TimeOnly uses time-only format instead of full timestamp
+		TimeOnly bool `envconfig:"TIME_ONLY"`
+	}
 
-// Config represents complete logger configuration.
-// Separates concerns: Sink (destination) vs Format (presentation).
-type Config struct {
-	Format FormatConfig
-	Sink   SinkConfig
-}
+	// Config represents complete logger configuration.
+	// Separates concerns: Sink (destination) vs Format (presentation).
+	Config struct {
+		Format FormatConfig
+		Sink   SinkConfig
+	}
+)
 
 // DefaultSinkConfig returns default sink configuration (console mode)
 func DefaultSinkConfig() SinkConfig {
@@ -67,9 +74,9 @@ func DefaultSinkConfig() SinkConfig {
 		Mode:       ConsoleMode,
 		Dir:        "/var/log",
 		FileName:   "",
-		MaxSizeMB:  100,
-		MaxFiles:   5,
-		MaxAgeDays: 28,
+		MaxSizeMB:  defaultMaxSizeMB,
+		MaxFiles:   defaultMaxFiles,
+		MaxAgeDays: defaultMaxAgeDays,
 	}
 }
 
@@ -117,6 +124,8 @@ func DefaultConfig() Config {
 // All fields with envconfig tags are overridable via LOG_* environment variables.
 // Since envconfig doesn't automatically walk nested structs, we process Sink and Format separately.
 // If environment variable processing fails, defaults are used as fallback.
+//
+//nolint:gocritic // hugeParam: intentional value semantics for clean API - called once at init, copy overhead negligible
 func NewConfigFromEnv(defaultConfig Config) Config {
 	// Process sink configuration
 	if err := envconfig.Process("LOG", &defaultConfig.Sink); err != nil {

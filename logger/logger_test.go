@@ -16,6 +16,33 @@ import (
 	"github.com/weka/go-weka-observability/logger"
 )
 
+type (
+	// LoggerTestSuite is a testify suite for complex tests with file operations.
+	LoggerTestSuite struct {
+		suite.Suite
+		origSlogHandler slog.Handler
+		tempDir         string
+	}
+
+	// envOverrideTestCase defines a single environment override test case.
+	envOverrideTestCase struct {
+		check    func(*testing.T, logger.Config)
+		name     string
+		envKey   string
+		envValue string
+	}
+)
+
+// allLogEnvVars returns all LOG_* environment variables used in tests.
+// Returned as a function to avoid package-level variable warnings.
+func allLogEnvVars() []string {
+	return []string{
+		"LOG_MODE", "LOG_DIR", "LOG_FILE_NAME",
+		"LOG_MAX_SIZE_MB", "LOG_MAX_FILES", "LOG_MAX_AGE_DAYS",
+		"LOG_LEVEL", "LOG_FORMAT", "LOG_TIME_ONLY", "LOG_CALLER_DIR_LVL",
+	}
+}
+
 // cleanupEnvVars removes specified environment variables
 func cleanupEnvVars(t *testing.T, vars []string) {
 	t.Helper()
@@ -26,21 +53,6 @@ func cleanupEnvVars(t *testing.T, vars []string) {
 	}
 }
 
-// allLogEnvVars contains all LOG_* environment variables used in tests
-var allLogEnvVars = []string{
-	"LOG_MODE", "LOG_DIR", "LOG_FILE_NAME",
-	"LOG_MAX_SIZE_MB", "LOG_MAX_FILES", "LOG_MAX_AGE_DAYS",
-	"LOG_LEVEL", "LOG_FORMAT", "LOG_TIME_ONLY", "LOG_CALLER_DIR_LVL",
-}
-
-// Testify Suite for complex tests with file operations
-
-type LoggerTestSuite struct {
-	suite.Suite
-	origSlogHandler slog.Handler
-	tempDir         string
-}
-
 func (s *LoggerTestSuite) SetupTest() {
 	s.tempDir = s.T().TempDir()
 	s.origSlogHandler = slog.Default().Handler()
@@ -48,7 +60,7 @@ func (s *LoggerTestSuite) SetupTest() {
 
 func (s *LoggerTestSuite) TearDownTest() {
 	slog.SetDefault(slog.New(s.origSlogHandler))
-	cleanupEnvVars(s.T(), allLogEnvVars)
+	cleanupEnvVars(s.T(), allLogEnvVars())
 }
 
 func TestLoggerSuite(t *testing.T) {
@@ -198,8 +210,8 @@ func (s *LoggerTestSuite) TestFileMode_WritesInfoAndErrorSeparately() {
 	// Check info file
 	infoPath := filepath.Join(s.tempDir, "test.log")
 	s.FileExists(infoPath)
-	infoContent, err := os.ReadFile(infoPath)
-	s.NoError(err)
+	infoContent, err := os.ReadFile(infoPath) //nolint:gosec // G304: test reads its own temp file
+	s.Require().NoError(err)
 	s.Contains(string(infoContent), "info message")
 	s.NotContains(string(infoContent), "warn message")
 	s.NotContains(string(infoContent), "error message")
@@ -207,8 +219,8 @@ func (s *LoggerTestSuite) TestFileMode_WritesInfoAndErrorSeparately() {
 	// Check error file
 	errorPath := filepath.Join(s.tempDir, "test-error.log")
 	s.FileExists(errorPath)
-	errorContent, err := os.ReadFile(errorPath)
-	s.NoError(err)
+	errorContent, err := os.ReadFile(errorPath) //nolint:gosec // G304: test reads its own temp file
+	s.Require().NoError(err)
 	s.Contains(string(errorContent), "warn message")
 	s.Contains(string(errorContent), "error message")
 	s.NotContains(string(errorContent), "info message")
@@ -298,7 +310,8 @@ func (s *LoggerTestSuite) TestMultiLevelWriter_SeparatesLevels() {
 
 	// Info file should have trace, debug, info
 	infoPath := filepath.Join(s.tempDir, "levels.log")
-	infoContent, _ := os.ReadFile(infoPath)
+	infoContent, err := os.ReadFile(infoPath) //nolint:gosec // G304: test reads its own temp file
+	s.Require().NoError(err)
 	infoStr := string(infoContent)
 	s.Contains(infoStr, "trace")
 	s.Contains(infoStr, "debug")
@@ -308,7 +321,8 @@ func (s *LoggerTestSuite) TestMultiLevelWriter_SeparatesLevels() {
 
 	// Error file should have warn, error
 	errorPath := filepath.Join(s.tempDir, "levels-error.log")
-	errorContent, _ := os.ReadFile(errorPath)
+	errorContent, readErr := os.ReadFile(errorPath) //nolint:gosec // G304: test reads its own temp file
+	s.Require().NoError(readErr)
 	errorStr := string(errorContent)
 	s.Contains(errorStr, "warn")
 	s.Contains(errorStr, "error")
@@ -362,70 +376,14 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, -1, config.Format.CallerDirLvl)
 }
 
-func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
-	// Clean up all env vars before starting
-	cleanupEnvVars(t, allLogEnvVars)
-
-	tests := []struct {
-		check    func(*testing.T, logger.Config)
-		name     string
-		envKey   string
-		envValue string
-	}{
-		{
-			name:     "LOG_MODE overrides sink mode",
-			envKey:   "LOG_MODE",
-			envValue: "file",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, logger.FileMode, c.Sink.Mode)
-			},
-		},
-		{
-			name:     "LOG_DIR overrides sink directory",
-			envKey:   "LOG_DIR",
-			envValue: "/custom/dir",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, "/custom/dir", c.Sink.Dir)
-			},
-		},
-		{
-			name:     "LOG_FILE_NAME overrides sink filename",
-			envKey:   "LOG_FILE_NAME",
-			envValue: "custom.log",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, "custom.log", c.Sink.FileName)
-			},
-		},
-		{
-			name:     "LOG_MAX_SIZE_MB overrides sink max size",
-			envKey:   "LOG_MAX_SIZE_MB",
-			envValue: "50",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, 50, c.Sink.MaxSizeMB)
-			},
-		},
-		{
-			name:     "LOG_MAX_FILES overrides sink max files",
-			envKey:   "LOG_MAX_FILES",
-			envValue: "10",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, 10, c.Sink.MaxFiles)
-			},
-		},
-		{
-			name:     "LOG_MAX_AGE_DAYS overrides sink max age",
-			envKey:   "LOG_MAX_AGE_DAYS",
-			envValue: "7",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, 7, c.Sink.MaxAgeDays)
-			},
-		},
-	}
+// runEnvOverrideTests executes environment override test cases with proper cleanup.
+func runEnvOverrideTests(t *testing.T, tests []envOverrideTestCase) {
+	t.Helper()
+	cleanupEnvVars(t, allLogEnvVars())
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clean all env vars before each test
-			cleanupEnvVars(t, allLogEnvVars)
+			cleanupEnvVars(t, allLogEnvVars())
 
 			require.NoError(t, os.Setenv(tt.envKey, tt.envValue))
 			defer func() {
@@ -440,66 +398,56 @@ func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
 	}
 }
 
+func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
+	tests := []envOverrideTestCase{
+		{
+			name: "LOG_MODE overrides sink mode", envKey: "LOG_MODE", envValue: "file",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, logger.FileMode, c.Sink.Mode) },
+		},
+		{
+			name: "LOG_DIR overrides sink directory", envKey: "LOG_DIR", envValue: "/custom/dir",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, "/custom/dir", c.Sink.Dir) },
+		},
+		{
+			name: "LOG_FILE_NAME overrides sink filename", envKey: "LOG_FILE_NAME", envValue: "custom.log",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, "custom.log", c.Sink.FileName) },
+		},
+		{
+			name: "LOG_MAX_SIZE_MB overrides sink max size", envKey: "LOG_MAX_SIZE_MB", envValue: "50",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, 50, c.Sink.MaxSizeMB) },
+		},
+		{
+			name: "LOG_MAX_FILES overrides sink max files", envKey: "LOG_MAX_FILES", envValue: "10",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, 10, c.Sink.MaxFiles) },
+		},
+		{
+			name: "LOG_MAX_AGE_DAYS overrides sink max age", envKey: "LOG_MAX_AGE_DAYS", envValue: "7",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, 7, c.Sink.MaxAgeDays) },
+		},
+	}
+	runEnvOverrideTests(t, tests)
+}
+
 func TestNewConfigFromEnv_FormatOverrides(t *testing.T) {
-	// Clean up all env vars before starting
-	cleanupEnvVars(t, allLogEnvVars)
-
-	tests := []struct {
-		check    func(*testing.T, logger.Config)
-		name     string
-		envKey   string
-		envValue string
-	}{
+	tests := []envOverrideTestCase{
 		{
-			name:     "LOG_LEVEL overrides format level",
-			envKey:   "LOG_LEVEL",
-			envValue: "0",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, zerolog.DebugLevel, c.Format.Level)
-			},
+			name: "LOG_LEVEL overrides format level", envKey: "LOG_LEVEL", envValue: "0",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, zerolog.DebugLevel, c.Format.Level) },
 		},
 		{
-			name:     "LOG_FORMAT overrides format",
-			envKey:   "LOG_FORMAT",
-			envValue: "raw",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, logger.LogFormatRaw, c.Format.Format)
-			},
+			name: "LOG_FORMAT overrides format", envKey: "LOG_FORMAT", envValue: "raw",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, logger.LogFormatRaw, c.Format.Format) },
 		},
 		{
-			name:     "LOG_TIME_ONLY overrides time format",
-			envKey:   "LOG_TIME_ONLY",
-			envValue: "true",
-			check: func(t *testing.T, c logger.Config) {
-				assert.True(t, c.Format.TimeOnly)
-			},
+			name: "LOG_TIME_ONLY overrides time format", envKey: "LOG_TIME_ONLY", envValue: "true",
+			check: func(t *testing.T, c logger.Config) { assert.True(t, c.Format.TimeOnly) },
 		},
 		{
-			name:     "LOG_CALLER_DIR_LVL overrides caller dir level",
-			envKey:   "LOG_CALLER_DIR_LVL",
-			envValue: "2",
-			check: func(t *testing.T, c logger.Config) {
-				assert.Equal(t, 2, c.Format.CallerDirLvl)
-			},
+			name: "LOG_CALLER_DIR_LVL overrides caller dir level", envKey: "LOG_CALLER_DIR_LVL", envValue: "2",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, 2, c.Format.CallerDirLvl) },
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Clean all env vars before each test
-			cleanupEnvVars(t, allLogEnvVars)
-
-			require.NoError(t, os.Setenv(tt.envKey, tt.envValue))
-			defer func() {
-				if err := os.Unsetenv(tt.envKey); err != nil {
-					t.Log(err)
-				}
-			}()
-
-			config := logger.NewConfigFromEnv(logger.DefaultConfig())
-			tt.check(t, config)
-		})
-	}
+	runEnvOverrideTests(t, tests)
 }
 
 func TestCreateLogger_WithConsoleSink(t *testing.T) {
@@ -598,10 +546,10 @@ func TestParseOutputMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := logger.ParseOutputMode(tt.input)
 			if tt.wantError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), "invalid output mode")
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 			assert.Equal(t, tt.want, got)
 		})
@@ -651,10 +599,10 @@ func TestParseLogFormat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := logger.ParseLogFormat(tt.input)
 			if tt.wantError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), "invalid log format")
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 			assert.Equal(t, tt.want, got)
 		})
@@ -777,7 +725,7 @@ func TestCallerDirDisplayLevel_WithConfig(t *testing.T) {
 			log := logger.NewZeroLoggerWithConfig(config)
 			log.Info().Msg("test message")
 
-			content, err := os.ReadFile(logFile)
+			content, err := os.ReadFile(logFile) //nolint:gosec // G304: test reads its own temp file
 			require.NoError(t, err)
 
 			if tt.expectCaller {
@@ -790,210 +738,164 @@ func TestCallerDirDisplayLevel_WithConfig(t *testing.T) {
 	}
 }
 
-func TestSetCallerDirDisplayLevel_DeprecatedFunction(t *testing.T) {
-	// Clean env before test
+// testDeprecatedCallerSetup creates a config for testing deprecated caller functionality.
+func testDeprecatedCallerSetup(tempDir string) logger.Config {
+	return logger.Config{
+		Sink: logger.SinkConfig{
+			Mode: logger.FileMode, Dir: tempDir, FileName: "deprecated-caller.log",
+			MaxSizeMB: 100, MaxFiles: 5, MaxAgeDays: 28,
+		},
+		Format: logger.FormatConfig{
+			Level: zerolog.InfoLevel, Format: logger.LogFormatJSON, TimeOnly: false,
+			CallerDirLvl: 0, // Enable caller in config
+		},
+	}
+}
+
+// readDeprecatedCallerLog reads the log file created by deprecated caller tests.
+//
+//nolint:gosec // G304: Test helper reads known temp file path controlled by test
+func readDeprecatedCallerLog(t *testing.T, tempDir string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(tempDir, "deprecated-caller.log"))
+	require.NoError(t, err)
+
+	return content
+}
+
+func TestSetCallerDirDisplayLevel_EnvNotSet(t *testing.T) {
 	if err := os.Unsetenv("LOG_CALLER_DIR_LVL"); err != nil {
 		t.Logf("failed to unset LOG_CALLER_DIR_LVL: %v", err)
 	}
 
 	tempDir := t.TempDir()
-	logFile := filepath.Join(tempDir, "deprecated-caller.log")
+	logger.SetCallerDirDisplayLevel()
 
-	tests := []struct {
-		name      string
-		envValue  string
-		setEnv    bool
-		expectLog bool
-	}{
-		{
-			name:      "env var not set",
-			setEnv:    false,
-			expectLog: false, // SetCallerDirDisplayLevel does nothing
-		},
-		{
-			name:      "env var set to 0",
-			envValue:  "0",
-			setEnv:    true,
-			expectLog: true,
-		},
-		{
-			name:      "env var set to 2",
-			envValue:  "2",
-			setEnv:    true,
-			expectLog: true,
-		},
-	}
+	log := logger.NewZeroLoggerWithConfig(testDeprecatedCallerSetup(tempDir))
+	log.Info().Msg("test deprecated caller")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Clean env
-			if err := os.Unsetenv("LOG_CALLER_DIR_LVL"); err != nil {
-				t.Logf("failed to unset LOG_CALLER_DIR_LVL: %v", err)
-			}
-
-			if tt.setEnv {
-				require.NoError(t, os.Setenv("LOG_CALLER_DIR_LVL", tt.envValue))
-				defer func() {
-					if err := os.Unsetenv("LOG_CALLER_DIR_LVL"); err != nil {
-						t.Logf("failed to unset LOG_CALLER_DIR_LVL in defer: %v", err)
-					}
-				}()
-			}
-
-			// Call deprecated function
-			logger.SetCallerDirDisplayLevel()
-
-			// Create logger with caller enabled using old API
-			config := logger.Config{
-				Sink: logger.SinkConfig{
-					Mode:       logger.FileMode,
-					Dir:        tempDir,
-					FileName:   "deprecated-caller.log",
-					MaxSizeMB:  100,
-					MaxFiles:   5,
-					MaxAgeDays: 28,
-				},
-				Format: logger.FormatConfig{
-					Level:        zerolog.InfoLevel,
-					Format:       logger.LogFormatJSON,
-					TimeOnly:     false,
-					CallerDirLvl: 0, // Enable caller in config
-				},
-			}
-
-			log := logger.NewZeroLoggerWithConfig(config)
-			log.Info().Msg("test deprecated caller")
-
-			content, err := os.ReadFile(logFile)
-			require.NoError(t, err)
-
-			// Should always contain caller since we enabled it in config
-			assert.Contains(t, string(content), "caller")
-			assert.Contains(t, string(content), "logger_test.go:")
-		})
-	}
+	content := readDeprecatedCallerLog(t, tempDir)
+	assert.Contains(t, string(content), "caller")
+	assert.Contains(t, string(content), "logger_test.go:")
 }
 
-func TestNewZeroLoggerWithConfig_ConsoleModeRoutesToStdoutStderr(t *testing.T) {
-	t.Run("NewZeroLoggerWithConfig routes info to stdout", func(t *testing.T) {
-		// Test ACTUAL NewZeroLoggerWithConfig by capturing real stdout
-		config := logger.Config{
-			Sink: logger.SinkConfig{
-				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
-			},
-			Format: logger.FormatConfig{
-				Format: logger.LogFormatJSON,
-				Level:  zerolog.TraceLevel,
-			},
+func TestSetCallerDirDisplayLevel_EnvSetToZero(t *testing.T) {
+	if err := os.Unsetenv("LOG_CALLER_DIR_LVL"); err != nil {
+		t.Logf("failed to unset LOG_CALLER_DIR_LVL: %v", err)
+	}
+	require.NoError(t, os.Setenv("LOG_CALLER_DIR_LVL", "0"))
+	defer func() {
+		if err := os.Unsetenv("LOG_CALLER_DIR_LVL"); err != nil {
+			t.Logf("failed to unset LOG_CALLER_DIR_LVL: %v", err)
 		}
+	}()
 
-		// Capture stdout using os.Pipe
-		origStdout := os.Stdout
-		r, w, _ := os.Pipe()
-		os.Stdout = w
-		defer func() {
-			os.Stdout = origStdout
-		}()
+	tempDir := t.TempDir()
+	logger.SetCallerDirDisplayLevel()
 
-		// Create logger with ACTUAL NewZeroLoggerWithConfig
-		log := logger.NewZeroLoggerWithConfig(config)
+	log := logger.NewZeroLoggerWithConfig(testDeprecatedCallerSetup(tempDir))
+	log.Info().Msg("test deprecated caller")
 
-		// Write info log (should go to stdout)
-		testMsg := "newzerologger_info_test_11111"
-		log.Info().Msg(testMsg)
+	content := readDeprecatedCallerLog(t, tempDir)
+	assert.Contains(t, string(content), "caller")
+	assert.Contains(t, string(content), "logger_test.go:")
+}
 
-		// Close write end and read captured output
-		require.NoError(t, w.Close())
-		output, err := io.ReadAll(r)
-		require.NoError(t, err)
-
-		// Verify the message was routed to stdout
-		assert.Contains(t, string(output), testMsg,
-			"NewZeroLoggerWithConfig should route info to stdout")
-	})
-
-	t.Run("NewZeroLoggerWithConfig routes errors to stderr", func(t *testing.T) {
-		// Test ACTUAL NewZeroLoggerWithConfig by capturing real stderr
-		config := logger.Config{
-			Sink: logger.SinkConfig{
-				Mode: logger.ConsoleMode, // Explicitly set ConsoleMode
-			},
-			Format: logger.FormatConfig{
-				Format: logger.LogFormatJSON,
-				Level:  zerolog.TraceLevel,
-			},
+func TestSetCallerDirDisplayLevel_EnvSetToTwo(t *testing.T) {
+	if err := os.Unsetenv("LOG_CALLER_DIR_LVL"); err != nil {
+		t.Logf("failed to unset LOG_CALLER_DIR_LVL: %v", err)
+	}
+	require.NoError(t, os.Setenv("LOG_CALLER_DIR_LVL", "2"))
+	defer func() {
+		if err := os.Unsetenv("LOG_CALLER_DIR_LVL"); err != nil {
+			t.Logf("failed to unset LOG_CALLER_DIR_LVL: %v", err)
 		}
+	}()
 
-		// Capture stderr using os.Pipe
-		origStderr := os.Stderr
-		r, w, _ := os.Pipe()
-		os.Stderr = w
-		defer func() {
-			os.Stderr = origStderr
-		}()
+	tempDir := t.TempDir()
+	logger.SetCallerDirDisplayLevel()
 
-		// Create logger with ACTUAL NewZeroLoggerWithConfig
-		log := logger.NewZeroLoggerWithConfig(config)
+	log := logger.NewZeroLoggerWithConfig(testDeprecatedCallerSetup(tempDir))
+	log.Info().Msg("test deprecated caller")
 
-		// Write error log (should go to stderr)
-		testMsg := "newzerologger_error_test_22222"
-		log.Error().Msg(testMsg)
+	content := readDeprecatedCallerLog(t, tempDir)
+	assert.Contains(t, string(content), "caller")
+	assert.Contains(t, string(content), "logger_test.go:")
+}
 
-		// Close write end and read captured output
-		require.NoError(t, w.Close())
-		output, err := io.ReadAll(r)
-		require.NoError(t, err)
+func TestNewZeroLoggerWithConfig_ConsoleModeRoutesToStdout(t *testing.T) {
+	config := logger.Config{
+		Sink:   logger.SinkConfig{Mode: logger.ConsoleMode},
+		Format: logger.FormatConfig{Format: logger.LogFormatJSON, Level: zerolog.TraceLevel},
+	}
 
-		// Verify the message was routed to stderr
-		assert.Contains(t, string(output), testMsg,
-			"NewZeroLoggerWithConfig should route error to stderr")
-	})
+	// Capture stdout using os.Pipe
+	origStdout := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
+	os.Stdout = w
+	defer func() { os.Stdout = origStdout }()
 
-	t.Run("NewZeroLoggerWithConfig with FileMode writes to files", func(t *testing.T) {
-		// Test FileMode routing to files
-		tempDir := t.TempDir()
-		config := logger.Config{
-			Sink: logger.SinkConfig{
-				Mode:       logger.FileMode,
-				Dir:        tempDir,
-				FileName:   "test.log",
-				MaxSizeMB:  10,
-				MaxFiles:   3,
-				MaxAgeDays: 7,
-			},
-			Format: logger.FormatConfig{
-				Format: logger.LogFormatJSON,
-				Level:  zerolog.TraceLevel,
-			},
-		}
+	log := logger.NewZeroLoggerWithConfig(config)
+	testMsg := "newzerologger_info_test_11111"
+	log.Info().Msg(testMsg)
 
-		// Create logger
-		log := logger.NewZeroLoggerWithConfig(config)
+	require.NoError(t, w.Close())
+	output, err := io.ReadAll(r)
+	require.NoError(t, err)
 
-		// Write info and error logs
-		infoMsg := "file_info_test_33333"
-		errorMsg := "file_error_test_44444"
-		log.Info().Msg(infoMsg)
-		log.Error().Msg(errorMsg)
+	assert.Contains(t, string(output), testMsg, "NewZeroLoggerWithConfig should route info to stdout")
+}
 
-		// Check that files were created
-		infoFile := filepath.Join(tempDir, "test.log")
-		errorFile := filepath.Join(tempDir, "test-error.log")
+func TestNewZeroLoggerWithConfig_ConsoleModeRoutesToStderr(t *testing.T) {
+	config := logger.Config{
+		Sink:   logger.SinkConfig{Mode: logger.ConsoleMode},
+		Format: logger.FormatConfig{Format: logger.LogFormatJSON, Level: zerolog.TraceLevel},
+	}
 
-		// Read info file
-		infoContent, err := os.ReadFile(infoFile)
-		require.NoError(t, err)
-		assert.Contains(t, string(infoContent), infoMsg,
-			"Info log should be in info file")
-		assert.NotContains(t, string(infoContent), errorMsg,
-			"Error log should NOT be in info file")
+	// Capture stderr using os.Pipe
+	origStderr := os.Stderr
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
+	os.Stderr = w
+	defer func() { os.Stderr = origStderr }()
 
-		// Read error file
-		errorContent, err := os.ReadFile(errorFile)
-		require.NoError(t, err)
-		assert.Contains(t, string(errorContent), errorMsg,
-			"Error log should be in error file")
-		assert.NotContains(t, string(errorContent), infoMsg,
-			"Info log should NOT be in error file")
-	})
+	log := logger.NewZeroLoggerWithConfig(config)
+	testMsg := "newzerologger_error_test_22222"
+	log.Error().Msg(testMsg)
+
+	require.NoError(t, w.Close())
+	output, err := io.ReadAll(r)
+	require.NoError(t, err)
+
+	assert.Contains(t, string(output), testMsg, "NewZeroLoggerWithConfig should route error to stderr")
+}
+
+func TestNewZeroLoggerWithConfig_FileModeWritesToFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	config := logger.Config{
+		Sink: logger.SinkConfig{
+			Mode: logger.FileMode, Dir: tempDir, FileName: "test.log",
+			MaxSizeMB: 10, MaxFiles: 3, MaxAgeDays: 7,
+		},
+		Format: logger.FormatConfig{Format: logger.LogFormatJSON, Level: zerolog.TraceLevel},
+	}
+
+	log := logger.NewZeroLoggerWithConfig(config)
+	infoMsg, errorMsg := "file_info_test_33333", "file_error_test_44444"
+	log.Info().Msg(infoMsg)
+	log.Error().Msg(errorMsg)
+
+	infoFile := filepath.Join(tempDir, "test.log")
+	errorFile := filepath.Join(tempDir, "test-error.log")
+
+	infoContent, err := os.ReadFile(infoFile) //nolint:gosec // G304: test reads its own temp file
+	require.NoError(t, err)
+	assert.Contains(t, string(infoContent), infoMsg, "Info log should be in info file")
+	assert.NotContains(t, string(infoContent), errorMsg, "Error log should NOT be in info file")
+
+	errorContent, err := os.ReadFile(errorFile) //nolint:gosec // G304: test reads its own temp file
+	require.NoError(t, err)
+	assert.Contains(t, string(errorContent), errorMsg, "Error log should be in error file")
+	assert.NotContains(t, string(errorContent), infoMsg, "Info log should NOT be in error file")
 }

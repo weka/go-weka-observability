@@ -13,60 +13,62 @@ import (
 	zerologger "github.com/weka/go-weka-observability/logger"
 )
 
-// spanLoggerBase contains shared fields and methods for both SpanLogger and SpanLoggerView.
-//
-// Design Decision: This type is not exported to keep implementation details private.
-// Users interact with SpanLogger and SpanLoggerView, which provide clear ownership semantics.
-//
-// The embedded Logger and Span provide direct access to their full interfaces,
-// while specific methods are overridden to integrate logging with span events.
-type spanLoggerBase struct {
-	ctx context.Context
-	trace.Span
-	logr.Logger
-}
+type (
+	// spanLoggerBase contains shared fields and methods for both SpanLogger and SpanLoggerView.
+	//
+	// Design Decision: This type is not exported to keep implementation details private.
+	// Users interact with SpanLogger and SpanLoggerView, which provide clear ownership semantics.
+	//
+	// The embedded Logger and Span provide direct access to their full interfaces,
+	// while specific methods are overridden to integrate logging with span events.
+	spanLoggerBase struct {
+		ctx context.Context
+		trace.Span
+		logr.Logger
+	}
 
-// SpanLogger represents a span you created and own.
-//
-// You MUST call End() when done, typically via defer:
-//
-//	ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
-//	defer logger.End()
-//
-// Design Decision: Separate type from SpanLoggerView to enforce ownership at compile time.
-// The compiler prevents forgetting to call End() through defer patterns.
-//
-// Thread-safety: Safe to call from multiple goroutines. Each method delegates to
-// the embedded Logger and Span, which are both thread-safe.
-type SpanLogger struct {
-	*spanLoggerBase
-	shutdown func() // private - never nil (either real cleanup or no-op)
-}
+	// SpanLogger represents a span you created and own.
+	//
+	// You MUST call End() when done, typically via defer:
+	//
+	//	ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
+	//	defer logger.End()
+	//
+	// Design Decision: Separate type from SpanLoggerView to enforce ownership at compile time.
+	// The compiler prevents forgetting to call End() through defer patterns.
+	//
+	// Thread-safety: Safe to call from multiple goroutines. Each method delegates to
+	// the embedded Logger and Span, which are both thread-safe.
+	SpanLogger struct {
+		*spanLoggerBase
+		shutdown func() // private - never nil (either real cleanup or no-op)
+	}
 
-// SpanLoggerView represents a borrowed span from context.
-//
-// You cannot call End() - the span is owned by whoever created it.
-// This is enforced at compile time by not providing an End() method.
-//
-//	view := instrumentation.CurrentSpanLogger(ctx)
-//	view.Info("Logging under current span")
-//	// view.End()  // COMPILE ERROR - method doesn't exist!
-//
-// Design Decision: Compile-time safety prevents accidentally ending a borrowed span.
-// This eliminates a whole class of resource management bugs that would only appear at runtime.
-//
-// Use Case: Helper functions that need to log under the current span without
-// taking ownership of the span lifecycle.
-//
-// Thread-safety: Safe to call from multiple goroutines. Each method delegates to
-// the embedded Logger and Span, which are both thread-safe.
-type SpanLoggerView struct {
-	*spanLoggerBase
-	// NO End() method - compile-time safety!
-}
+	// SpanLoggerView represents a borrowed span from context.
+	//
+	// You cannot call End() - the span is owned by whoever created it.
+	// This is enforced at compile time by not providing an End() method.
+	//
+	//	view := instrumentation.CurrentSpanLogger(ctx)
+	//	view.Info("Logging under current span")
+	//	// view.End()  // COMPILE ERROR - method doesn't exist!
+	//
+	// Design Decision: Compile-time safety prevents accidentally ending a borrowed span.
+	// This eliminates a whole class of resource management bugs that would only appear at runtime.
+	//
+	// Use Case: Helper functions that need to log under the current span without
+	// taking ownership of the span lifecycle.
+	//
+	// Thread-safety: Safe to call from multiple goroutines. Each method delegates to
+	// the embedded Logger and Span, which are both thread-safe.
+	SpanLoggerView struct {
+		*spanLoggerBase
+		// NO End() method - compile-time safety!
+	}
+)
 
 // Enabled returns whether this logger is enabled at the given verbosity level
-func (ls *spanLoggerBase) Enabled(level int) bool {
+func (ls *spanLoggerBase) Enabled(_ int) bool {
 	return ls.Logger.Enabled()
 }
 
@@ -90,8 +92,10 @@ func (ls *spanLoggerBase) Printf(msg string, args ...any) {
 	ls.WithCallDepth(CallDepthOffset).Info(fmt.Sprintf(msg, args...))
 }
 
-// Errorf logs a formatted error message
+// Errorf logs a formatted error message.
+// The error is intentionally dynamic as this is a convenience function like fmt.Errorf.
 func (ls *spanLoggerBase) Errorf(msg string, args ...any) {
+	//nolint:err113 // intentional: Errorf creates dynamic errors by design, similar to fmt.Errorf
 	ls.WithCallDepth(CallDepthOffset).Error(fmt.Errorf(msg, args...), "")
 }
 
@@ -392,6 +396,8 @@ func CreateRootLogSpan(ctx context.Context, name string, keysAndValues ...any) (
 //	)
 //	defer logger.End()
 //	ctx, logger = logger.WithValues("batch_size", 1000)
+//
+// nolint:spancheck // span ownership transferred to caller via SpanLogger.End()
 func CreateLogSpanWithOptions(
 	ctx context.Context,
 	name string,
@@ -445,6 +451,8 @@ func CreateLogSpanWithOptions(
 //	)
 //	defer logger.End()
 //	ctx, logger = logger.WithValues("job_id", jobID, "job_type", "cleanup")
+//
+// nolint:spancheck // span ownership transferred to caller via SpanLogger.End()
 func CreateRootLogSpanWithOptions(
 	ctx context.Context,
 	name string,

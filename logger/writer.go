@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -13,11 +15,24 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// callerMarshalMutex protects global zerolog.CallerMarshalFunc modification
-var callerMarshalMutex sync.Mutex
+var (
+	// ErrLogLevelOutOfBounds is returned when LOG_LEVEL value is outside valid range.
+	ErrLogLevelOutOfBounds = errors.New("log level out of bounds")
 
-// LevelComparator is a function that determines if a log level should be written
-type LevelComparator func(zerolog.Level) bool
+	// callerMarshalMutex protects global zerolog.CallerMarshalFunc modification
+	callerMarshalMutex sync.Mutex
+)
+
+type (
+	// LevelComparator is a function that determines if a log level should be written
+	LevelComparator func(zerolog.Level) bool
+
+	// SpecificLevelWriter routes logs to a writer based on log level comparison
+	SpecificLevelWriter struct {
+		io.Writer
+		ShouldWrite LevelComparator
+	}
+)
 
 // isInfoLevelOrBelow returns true for info-level and below (Trace, Debug, Info)
 // These levels are routed to the info writer in file mode
@@ -29,12 +44,6 @@ func isInfoLevelOrBelow(level zerolog.Level) bool {
 // These levels are routed to the error writer in file mode
 func isWarnLevelOrAbove(level zerolog.Level) bool {
 	return level >= zerolog.WarnLevel
-}
-
-// SpecificLevelWriter routes logs to a writer based on log level comparison
-type SpecificLevelWriter struct {
-	io.Writer
-	ShouldWrite LevelComparator
 }
 
 // WriteLevel implements zerolog.LevelWriter interface
@@ -73,7 +82,9 @@ func GetStderrWriterFromFormat(format FormatConfig) io.Writer {
 	}
 }
 
-// GetStderrWriter is DEPRECATED: Use GetStderrWriterFromFormat with FormatConfig instead.
+// GetStderrWriter creates stderr io.Writer based on environment variables.
+//
+// Deprecated: Use GetStderrWriterFromFormat with FormatConfig instead.
 // This function reads LOG_FORMAT and LOG_TIME_ONLY directly from environment.
 // Migrate to FormatConfig for better testability.
 func GetStderrWriter() io.Writer {
@@ -109,7 +120,9 @@ func createConsoleMultiLevelWriter(format FormatConfig) io.Writer {
 	case LogFormatPlain:
 		stdoutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat, NoColor: true}
 		stderrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat, NoColor: true}
-	default: // LogFormatRaw
+	case LogFormatRaw:
+		fallthrough
+	default:
 		stdoutWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat}
 		stderrWriter = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: timeFormat}
 	}
@@ -117,7 +130,9 @@ func createConsoleMultiLevelWriter(format FormatConfig) io.Writer {
 	return createMultiLevelWriter(stdoutWriter, stderrWriter)
 }
 
-// GetMultiLevelWriter is DEPRECATED: Use GetStderrWriter for stderr-only output,
+// GetMultiLevelWriter creates a multi-level writer that routes logs to stdout/stderr.
+//
+// Deprecated: Use GetStderrWriter for stderr-only output,
 // or GetMultiLevelWriterWithConfig for file-based logging with level separation.
 //
 // This function maintains backward compatibility by routing logs to stdout/stderr:
@@ -147,6 +162,8 @@ func GetMultiLevelWriter() io.Writer {
 // Both ConsoleMode and FileMode use multi-level writers for level separation:
 // - ConsoleMode: info/debug/trace → stdout, warn/error/fatal/panic → stderr
 // - FileMode: info/debug/trace → info file, warn/error/fatal/panic → error file
+//
+//nolint:gocritic // hugeParam: intentional value semantics for clean API - called once at init, copy overhead negligible
 func GetMultiLevelWriterWithConfig(config Config) io.Writer {
 	if config.Sink.Mode == FileMode {
 		// Validate FileMode sink configuration
@@ -215,7 +232,7 @@ func setCallerMarshalFunc(callerDirLvl int) {
 	callerMarshalMutex.Lock()
 	defer callerMarshalMutex.Unlock()
 
-	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
+	zerolog.CallerMarshalFunc = func(_ uintptr, file string, line int) string {
 		short := file
 		dirsNum := callerDirLvl
 		for i := len(file) - 1; i > 0; i-- {
@@ -232,13 +249,14 @@ func setCallerMarshalFunc(callerDirLvl int) {
 	}
 }
 
-// Set the amount of nested dirs displayed before `<file_name>:<line_number>` for `caller` field in logger.
-// `LOG_CALLER_DIR_LVL` is used for this.
-// If unset - does nothing (default `caller` formatting is used)
-// If `LOG_CALLER_DIR_LVL=0`, only the filename and line number are displayed (e.g. `message_processor.go:89`)
-// see https://github.com/rs/zerolog/blob/master/README.md#add-file-and-line-number-to-log
+// SetCallerDirDisplayLevel configures the amount of nested dirs displayed before
+// `<file_name>:<line_number>` for `caller` field in logger using LOG_CALLER_DIR_LVL env var.
 //
-// DEPRECATED: Use Config.Format.CallerDirLvl instead.
+// If unset - does nothing (default `caller` formatting is used).
+// If `LOG_CALLER_DIR_LVL=0`, only the filename and line number are displayed (e.g. `message_processor.go:89`).
+// See https://github.com/rs/zerolog/blob/master/README.md#add-file-and-line-number-to-log
+//
+// Deprecated: Use Config.Format.CallerDirLvl instead.
 // This function reads LOG_CALLER_DIR_LVL directly from environment.
 // Migrate to FormatConfig for better testability.
 func SetCallerDirDisplayLevel() {
@@ -253,15 +271,43 @@ func SetCallerDirDisplayLevel() {
 	setCallerMarshalFunc(lvl)
 }
 
-// GetLogLevel is DEPRECATED: Use Config.Format.Level instead.
+// GetLogLevel returns the log level from LOG_LEVEL environment variable.
+//
+// Deprecated: Use Config.Format.Level instead.
 // This function reads LOG_LEVEL environment variable directly.
 // Migrate to structured configuration for better testability.
 func GetLogLevel() zerolog.Level {
 	lvlStr := os.Getenv("LOG_LEVEL")
-	lvl := 1 // info level
-	if val, err := strconv.Atoi(lvlStr); err == nil {
-		lvl = val
+	if lvlStr == "" {
+		return zerolog.InfoLevel
 	}
 
-	return zerolog.Level(lvl)
+	level, err := parseLogLevel(lvlStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: %v, using default InfoLevel\n", err)
+
+		return zerolog.InfoLevel
+	}
+
+	return level
+}
+
+// parseLogLevel parses a string to zerolog.Level with bounds validation.
+func parseLogLevel(s string) (zerolog.Level, error) {
+	val, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+
+	if val < int(zerolog.TraceLevel) || val > int(zerolog.Disabled) {
+		return 0, fmt.Errorf(
+			"%w: LOG_LEVEL=%d (valid range: %d to %d)",
+			ErrLogLevelOutOfBounds,
+			val,
+			int(zerolog.TraceLevel),
+			int(zerolog.Disabled),
+		)
+	}
+
+	return zerolog.Level(val), nil
 }

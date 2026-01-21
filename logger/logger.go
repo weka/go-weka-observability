@@ -82,16 +82,17 @@ func NewLogger() *Logger {
 	return &Logger{log}
 }
 
-// By default, log string in zerolog that uses `caller` will have formart:
-// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text"
-// additional_field=value logger=TopLevelName.NestedLoggerName
-// without `caller`:
-// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value
-// logger=TopLevelName.NestedLoggerName
-// ---
+// NewZerologrWithLoggerNameInsteadCaller creates a zerologr logger that uses logger name instead of caller.
+//
+// By default, log string in zerolog that uses `caller` will have format:
+//
+//	2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text"
+//	additional_field=value logger=TopLevelName.NestedLoggerName
+//
 // This function will change the `logger` field to be put instead of `caller`:
-// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text"
-// additional_field=value
+//
+//	2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text"
+//	additional_field=value
 func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 	initLogger := NewZeroLoggerWithoutCaller()
 	zerologr.NameFieldName = "caller"
@@ -130,6 +131,8 @@ func NewZeroLoggerWithoutCaller() *zerolog.Logger {
 }
 
 // NewZeroLoggerWithConfig creates zerolog logger from complete config
+//
+//nolint:gocritic // hugeParam: intentional value semantics for clean API - called once at init, copy overhead negligible
 func NewZeroLoggerWithConfig(config Config) *zerolog.Logger {
 	// Create base logger with configured writer and level
 	logCtx := zerolog.New(GetMultiLevelWriterWithConfig(config)).

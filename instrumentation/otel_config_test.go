@@ -28,7 +28,7 @@ func TestDefaultOTelConfig(t *testing.T) {
 
 func TestNewOTelConfigFromEnv_NoEnvVars(t *testing.T) {
 	// Ensure no env var is set
-	_ = os.Unsetenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	cleanupEnvVar(t, "OTEL_EXPORTER_OTLP_ENDPOINT")
 
 	defaultConfig := instrumentation.DefaultOTelConfig()
 	config := instrumentation.NewOTelConfigFromEnv(defaultConfig)
@@ -140,10 +140,16 @@ func TestSetupOTelSDKFrom_DoesNotMutateConfig(t *testing.T) {
 	// Call SetupOTelSDKFrom with additional keysAndValues
 	ctx := context.Background()
 	logger := logr.Discard()
-	_, _ = instrumentation.SetupOTelSDKFrom(
+	shutdown, err := instrumentation.SetupOTelSDKFrom(
 		ctx, "test-service", "v1.0.0", logger, config,
 		"additional_key", "additional_value",
 	)
+	require.NoError(t, err)
+	defer func() {
+		if err := shutdown(context.Background()); err != nil {
+			t.Logf("failed to shutdown: %v", err)
+		}
+	}()
 
 	// Verify the original config's ResourceAttributes were not mutated
 	assert.Len(t, config.ResourceAttributes, 2,
