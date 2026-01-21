@@ -41,21 +41,24 @@ type SinkConfig struct {
 // FormatConfig configures how logs are presented.
 // This controls the visual appearance and filtering of log messages.
 type FormatConfig struct {
-	// Level is the minimum log level to output
-	Level zerolog.Level `envconfig:"LEVEL"`
 	// Format is the output format (json/raw/plain)
 	Format LogFormat `envconfig:"FORMAT"`
-	// TimeOnly uses time-only format instead of full timestamp
-	TimeOnly bool `envconfig:"TIME_ONLY"`
+
 	// CallerDirLvl is the number of nested directories to display in caller field
 	CallerDirLvl int `envconfig:"CALLER_DIR_LVL"`
+
+	// Level is the minimum log level to output. -1=trace, 0=debug, 1=info, 2=warn, 3=error, 4=fatal
+	Level zerolog.Level `envconfig:"LEVEL"`
+
+	// TimeOnly uses time-only format instead of full timestamp
+	TimeOnly bool `envconfig:"TIME_ONLY"`
 }
 
 // Config represents complete logger configuration.
 // Separates concerns: Sink (destination) vs Format (presentation).
 type Config struct {
-	Sink   SinkConfig
 	Format FormatConfig
+	Sink   SinkConfig
 }
 
 // DefaultSinkConfig returns default sink configuration (console mode)
@@ -132,7 +135,8 @@ func NewConfigFromEnv(defaultConfig Config) Config {
 	return defaultConfig
 }
 
-// NewDefaultConfigWithEnvOverrides returns logger configuration with defaults that can be overridden by environment variables.
+// NewDefaultConfigWithEnvOverrides returns logger configuration with defaults that can be overridden by environment
+// variables.
 //
 // Note: Since CreateLoggerFrom() now automatically applies environment overrides,
 // using CreateLoggerFrom(DefaultConfig()) is equivalent to CreateLoggerFrom(NewDefaultConfigWithEnvOverrides()).

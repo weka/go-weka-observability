@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/rs/zerolog"
+
 	zerologger "github.com/weka/go-weka-observability/logger"
 )
 
@@ -64,4 +65,3 @@ func main() {
 	fmt.Println("- test-logs/test.log (env override info logs)")
 	fmt.Println("- test-logs/test-error.log (env override error logs)")
 }
-

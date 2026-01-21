@@ -69,18 +69,24 @@ var Tracer trace.Tracer
 // Moving it improves package cohesion and clarity of responsibility.
 //
 // By default, log string in zerolog that uses `caller` will have formart:
-// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
+// 2024-09-26T00:00:00+00:00 ERR path/to/file.go:217 > Error running some operation error="error text"
+// additional_field=value logger=TopLevelName.NestedLoggerName
 // without `caller`:
-// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value logger=TopLevelName.NestedLoggerName
+// 2024-09-26T00:00:00+00:00 ERR Error running some operation error="error text" additional_field=value
+// logger=TopLevelName.NestedLoggerName
 // ---
 // This function will change the `logger` field to be put instead of `caller`:
-// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text" additional_field=value
+// 2024-09-26T00:00:00+00:00 ERR TopLevelName.NestedLoggerName > Error running some operation error="error text"
+// additional_field=value
 func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 	initLogger := zerologger.NewZeroLoggerWithoutCaller()
 	zerologr.NameFieldName = "caller"
+
 	return zerologr.New(initLogger)
 }
 
+// GetLoggerForContext creates or retrieves a logger from context.
+//
 // Deprecated: Use logger.LogrFromContextOrDefault or logger.CreateLogger instead.
 //
 // Reason: Confusing API with overloaded behavior based on nil pointer checks.
@@ -149,7 +155,12 @@ func NewZerologrWithLoggerNameInsteadCaller() logr.Logger {
 //	You only need to ensure ContextWithLogr() is called BEFORE GetLogSpan().
 //
 // See docs/logger-initialization-migration.md for complete migration guide.
-func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name string, keysAndValues ...any) (context.Context, logr.Logger) {
+func GetLoggerForContext(
+	ctx context.Context,
+	baseLogger *logr.Logger,
+	name string,
+	keysAndValues ...any,
+) (context.Context, logr.Logger) {
 	var logger logr.Logger
 	if baseLogger == nil {
 		logger = zerologger.LogrFromContextOrDefault(ctx)
@@ -162,6 +173,7 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 		logger = logger.WithName(name)
 	}
 	retCtx := zerologger.ContextWithLogr(ctx, logger)
+
 	return retCtx, logger
 }
 
@@ -222,11 +234,13 @@ func GetSpanForContext(ctx context.Context, name string, keysAndValues ...any) (
 			panic("When re-using old context it is forbidden to modify span values, as new span is not created")
 		}
 		span := getCurrentSpan(ctx)
+
 		return ctx, span
 	}
 
 	// Delegate to new API helper for span creation
 	ctx, span, _ := createChildSpan(ctx, name, keysAndValues)
+
 	return ctx, span
 }
 
@@ -379,6 +393,7 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 	shutdownFunc := createSpanShutdownFunc(span, logger, name)
 
 	logOperationStart(logger, name)
+
 	return ctx, newSpanLogger(ctx, logger, span, shutdownFunc), shutdownFunc
 }
 
@@ -420,7 +435,12 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...any) (context
 //
 //	config := instrumentation.NewDefaultOTelConfigWithEnvOverrides()
 //	shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "service", "v1", logr, config, "key", "value")
-func SetupOTelSDK(ctx context.Context, serviceName, serviceVersion string, logger logr.Logger, keysAndValues ...any) (shutdown func(context.Context) error, err error) {
+func SetupOTelSDK(
+	ctx context.Context,
+	serviceName, serviceVersion string,
+	logger logr.Logger,
+	keysAndValues ...any,
+) (shutdown func(context.Context) error, err error) {
 	return SetupOTelSDKWithOptions(
 		ctx, serviceName, serviceVersion, logger,
 		WithResourceAttributes(keysAndValues...),

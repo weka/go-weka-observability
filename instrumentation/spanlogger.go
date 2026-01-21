@@ -6,10 +6,11 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
-	zerologger "github.com/weka/go-weka-observability/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	zerologger "github.com/weka/go-weka-observability/logger"
 )
 
 // spanLoggerBase contains shared fields and methods for both SpanLogger and SpanLoggerView.
@@ -20,9 +21,9 @@ import (
 // The embedded Logger and Span provide direct access to their full interfaces,
 // while specific methods are overridden to integrate logging with span events.
 type spanLoggerBase struct {
-	ctx         context.Context // private - stores enriched context
-	logr.Logger                 // embedded - public logging interface
-	trace.Span                  // embedded - public span interface
+	ctx context.Context
+	trace.Span
+	logr.Logger
 }
 
 // SpanLogger represents a span you created and own.
@@ -183,7 +184,7 @@ func (sl *SpanLogger) WithValues(keysAndValues ...any) (context.Context, *SpanLo
 			Logger: enrichedLogger,
 			Span:   sl.Span,
 		},
-		shutdown: sl.shutdown,  // Same shutdown function - both loggers share it
+		shutdown: sl.shutdown, // Same shutdown function - both loggers share it
 	}
 }
 
@@ -391,7 +392,11 @@ func CreateRootLogSpan(ctx context.Context, name string, keysAndValues ...any) (
 //	)
 //	defer logger.End()
 //	ctx, logger = logger.WithValues("batch_size", 1000)
-func CreateLogSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+func CreateLogSpanWithOptions(
+	ctx context.Context,
+	name string,
+	opts ...trace.SpanStartOption,
+) (context.Context, *SpanLogger) {
 	logger := getOrCreateLogger(ctx)
 	logger = enrichLogger(logger, name, nil)
 	ctx = zerologger.ContextWithLogr(ctx, logger)
@@ -440,7 +445,11 @@ func CreateLogSpanWithOptions(ctx context.Context, name string, opts ...trace.Sp
 //	)
 //	defer logger.End()
 //	ctx, logger = logger.WithValues("job_id", jobID, "job_type", "cleanup")
-func CreateRootLogSpanWithOptions(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, *SpanLogger) {
+func CreateRootLogSpanWithOptions(
+	ctx context.Context,
+	name string,
+	opts ...trace.SpanStartOption,
+) (context.Context, *SpanLogger) {
 	logger := getOrCreateLogger(ctx)
 	logger = enrichLogger(logger, name, nil)
 	ctx = zerologger.ContextWithLogr(ctx, logger)
@@ -498,6 +507,7 @@ func CreateServerLogSpan(ctx context.Context, name string, keysAndValues ...any)
 	if len(keysAndValues) > 0 {
 		ctx, logger = logger.WithValues(keysAndValues...)
 	}
+
 	return ctx, logger
 }
 
@@ -535,6 +545,7 @@ func CreateClientLogSpan(ctx context.Context, name string, keysAndValues ...any)
 	if len(keysAndValues) > 0 {
 		ctx, logger = logger.WithValues(keysAndValues...)
 	}
+
 	return ctx, logger
 }
 
@@ -572,6 +583,7 @@ func CreateProducerLogSpan(ctx context.Context, name string, keysAndValues ...an
 	if len(keysAndValues) > 0 {
 		ctx, logger = logger.WithValues(keysAndValues...)
 	}
+
 	return ctx, logger
 }
 
@@ -609,5 +621,6 @@ func CreateConsumerLogSpan(ctx context.Context, name string, keysAndValues ...an
 	if len(keysAndValues) > 0 {
 		ctx, logger = logger.WithValues(keysAndValues...)
 	}
+
 	return ctx, logger
 }

@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/go-weka-observability/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/go-weka-observability/logger"
 )
 
 // Example demonstrating type-safe span creation with OpenTelemetry options.

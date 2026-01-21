@@ -291,7 +291,7 @@ func getDefaultPreferences() string {
 	return "DefaultPreferences{theme: light, language: en}"
 }
 
-func sendNotification(ctx context.Context, userID string, message string) error {
+func sendNotification(ctx context.Context, userID, message string) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "send_notification")
 	defer logger.End()
 
@@ -303,7 +303,7 @@ func sendNotification(ctx context.Context, userID string, message string) error 
 	return err
 }
 
-func updateActivityLog(ctx context.Context, userID string, action string) error {
+func updateActivityLog(ctx context.Context, userID, action string) error {
 	ctx, logger := instrumentation.CreateLogSpan(ctx, "update_activity_log")
 	defer logger.End()
 

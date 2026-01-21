@@ -13,10 +13,8 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-var (
-	// callerMarshalMutex protects global zerolog.CallerMarshalFunc modification
-	callerMarshalMutex sync.Mutex
-)
+// callerMarshalMutex protects global zerolog.CallerMarshalFunc modification
+var callerMarshalMutex sync.Mutex
 
 // LevelComparator is a function that determines if a log level should be written
 type LevelComparator func(zerolog.Level) bool
@@ -44,6 +42,7 @@ func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, err
 	if w.ShouldWrite(level) {
 		return w.Write(p)
 	}
+
 	return len(p), nil
 }
 
@@ -90,6 +89,7 @@ func GetStderrWriter() io.Writer {
 	if os.Getenv("LOG_TIME_ONLY") == "true" {
 		config.TimeOnly = true
 	}
+
 	return GetStderrWriterFromFormat(config)
 }
 
@@ -165,6 +165,7 @@ func GetMultiLevelWriterWithConfig(config Config) io.Writer {
 		// FileMode: use multi-level writer for separate info/error files
 		infoWriter := createLumberjackWriter(config.Sink, logLevelInfo)
 		errorWriter := createLumberjackWriter(config.Sink, logLevelError)
+
 		return createMultiLevelWriter(infoWriter, errorWriter)
 	}
 
@@ -226,6 +227,7 @@ func setCallerMarshalFunc(callerDirLvl int) {
 				dirsNum--
 			}
 		}
+
 		return short + ":" + strconv.Itoa(line)
 	}
 }
@@ -260,5 +262,6 @@ func GetLogLevel() zerolog.Level {
 	if val, err := strconv.Atoi(lvlStr); err == nil {
 		lvl = val
 	}
+
 	return zerolog.Level(lvl)
 }

@@ -61,7 +61,8 @@ func main() {
 	//     Endpoint: "http://localhost:4317",  // DEFAULT value
 	// }
 	// config = instrumentation.NewOTelConfigFromEnv(config)  // Env can override
-	// shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "basic-logspan-example", "v1.0.0", ctxLogger, config, rootKeysAndValues...)
+	// shutdown, err := instrumentation.SetupOTelSDKFrom(ctx, "basic-logspan-example", "v1.0.0", ctxLogger, config,
+	// rootKeysAndValues...)
 	//
 	// API Option 2: SetupOTelSDKWithOptions - Functional options (env always takes precedence)
 	// This follows the same pattern as logger.CreateLogger

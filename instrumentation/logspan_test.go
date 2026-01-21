@@ -8,14 +8,15 @@ import (
 
 	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/suite"
-	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/go-weka-observability/instrumentation/oteltest"
-	"github.com/weka/go-weka-observability/logger"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/go-weka-observability/instrumentation/oteltest"
+	"github.com/weka/go-weka-observability/logger"
 )
 
 // SpanLoggerAPISuite tests the new SpanLogger API with type-safe span ownership
@@ -51,16 +52,6 @@ func (s *SpanLoggerAPISuite) TearDownTest() {
 	if s.recorder != nil {
 		_ = s.recorder.Shutdown(context.Background())
 	}
-}
-
-// assertLogContains verifies that the log output contains the expected substring
-func (s *SpanLoggerAPISuite) assertLogContains(substring string, msgAndArgs ...interface{}) {
-	s.Contains(s.logOutput.String(), substring, msgAndArgs...)
-}
-
-// resetLogOutput clears the captured log output
-func (s *SpanLoggerAPISuite) resetLogOutput() {
-	s.logOutput.Reset()
 }
 
 // TestCreateLogSpan_CreatesOwnedSpan verifies CreateLogSpan returns SpanLogger with End() method
@@ -303,6 +294,7 @@ func (s *SpanLoggerAPISuite) TestSpanLoggerErrorMethods() {
 	for _, event := range events {
 		if event.Name == "exception" {
 			hasErrorEvent = true
+
 			break
 		}
 	}
@@ -331,6 +323,7 @@ func (s *SpanLoggerAPISuite) TestSpanLoggerErrorMethods() {
 	for _, event := range events2 {
 		if event.Name == "exception" {
 			hasErrorEvent2 = true
+
 			break
 		}
 	}
@@ -648,6 +641,7 @@ func (s *SpanLoggerAPISuite) TestCreateRootLogSpanWithOptions_BreaksParentChain(
 	for _, span := range spans {
 		if span.Name() == "root.operation" {
 			rootSpan = span
+
 			break
 		}
 	}
@@ -805,9 +799,9 @@ func (s *SpanLoggerAPISuite) TestGetTracer_ReturnsValidTracer() {
 // TestConvenienceFunctions_AllSpanKinds verifies all convenience functions
 func (s *SpanLoggerAPISuite) TestConvenienceFunctions_AllSpanKinds() {
 	testCases := []struct {
-		name              string
-		createFunc        func(context.Context, string, ...any) (context.Context, *instrumentation.SpanLogger)
-		expectedSpanKind  trace.SpanKind
+		createFunc       func(context.Context, string, ...any) (context.Context, *instrumentation.SpanLogger)
+		name             string
+		expectedSpanKind trace.SpanKind
 	}{
 		{
 			name:             "CreateServerLogSpan",
@@ -847,4 +841,14 @@ func (s *SpanLoggerAPISuite) TestConvenienceFunctions_AllSpanKinds() {
 			s.Equal(tc.expectedSpanKind, spans[0].SpanKind())
 		})
 	}
+}
+
+// assertLogContains verifies that the log output contains the expected substring
+func (s *SpanLoggerAPISuite) assertLogContains(substring string, msgAndArgs ...any) {
+	s.Contains(s.logOutput.String(), substring, msgAndArgs...)
+}
+
+// resetLogOutput clears the captured log output
+func (s *SpanLoggerAPISuite) resetLogOutput() {
+	s.logOutput.Reset()
 }
