@@ -431,8 +431,20 @@ func TestNewConfigFromEnv_SinkOverrides(t *testing.T) {
 func TestNewConfigFromEnv_FormatOverrides(t *testing.T) {
 	tests := []envOverrideTestCase{
 		{
-			name: "LOG_LEVEL overrides format level", envKey: "LOG_LEVEL", envValue: "0",
+			name: "LOG_LEVEL numeric overrides format level", envKey: "LOG_LEVEL", envValue: "0",
 			check: func(t *testing.T, c logger.Config) { assert.Equal(t, zerolog.DebugLevel, c.Format.Level) },
+		},
+		{
+			name: "LOG_LEVEL string INFO overrides format level", envKey: "LOG_LEVEL", envValue: "INFO",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, zerolog.InfoLevel, c.Format.Level) },
+		},
+		{
+			name: "LOG_LEVEL string debug (lowercase) overrides format level", envKey: "LOG_LEVEL", envValue: "debug",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, zerolog.DebugLevel, c.Format.Level) },
+		},
+		{
+			name: "LOG_LEVEL string warn overrides format level", envKey: "LOG_LEVEL", envValue: "warn",
+			check: func(t *testing.T, c logger.Config) { assert.Equal(t, zerolog.WarnLevel, c.Format.Level) },
 		},
 		{
 			name: "LOG_FORMAT overrides format", envKey: "LOG_FORMAT", envValue: "raw",
@@ -898,4 +910,44 @@ func TestNewZeroLoggerWithConfig_FileModeWritesToFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(errorContent), errorMsg, "Error log should be in error file")
 	assert.NotContains(t, string(errorContent), infoMsg, "Info log should NOT be in error file")
+}
+
+// Tests for GetLogLevel (deprecated function)
+
+func TestGetLogLevel_StringLevelNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		want     zerolog.Level
+	}{
+		{name: "uppercase INFO", envValue: "INFO", want: zerolog.InfoLevel},
+		{name: "lowercase info", envValue: "info", want: zerolog.InfoLevel},
+		{name: "uppercase DEBUG", envValue: "DEBUG", want: zerolog.DebugLevel},
+		{name: "lowercase debug", envValue: "debug", want: zerolog.DebugLevel},
+		{name: "uppercase WARN", envValue: "WARN", want: zerolog.WarnLevel},
+		{name: "lowercase warn", envValue: "warn", want: zerolog.WarnLevel},
+		{name: "uppercase ERROR", envValue: "ERROR", want: zerolog.ErrorLevel},
+		{name: "lowercase error", envValue: "error", want: zerolog.ErrorLevel},
+		{name: "uppercase TRACE", envValue: "TRACE", want: zerolog.TraceLevel},
+		{name: "lowercase trace", envValue: "trace", want: zerolog.TraceLevel},
+		{name: "numeric 0 (debug)", envValue: "0", want: zerolog.DebugLevel},
+		{name: "numeric 1 (info)", envValue: "1", want: zerolog.InfoLevel},
+		{name: "numeric -1 (trace)", envValue: "-1", want: zerolog.TraceLevel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleanupEnvVars(t, allLogEnvVars())
+
+			require.NoError(t, os.Setenv("LOG_LEVEL", tt.envValue))
+			defer func() {
+				if err := os.Unsetenv("LOG_LEVEL"); err != nil {
+					t.Log(err)
+				}
+			}()
+
+			got := logger.GetLogLevel()
+			assert.Equal(t, tt.want, got, "GetLogLevel() should parse %q as %v", tt.envValue, tt.want)
+		})
+	}
 }

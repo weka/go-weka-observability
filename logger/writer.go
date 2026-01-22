@@ -19,6 +19,9 @@ var (
 	// ErrLogLevelOutOfBounds is returned when LOG_LEVEL value is outside valid range.
 	ErrLogLevelOutOfBounds = errors.New("log level out of bounds")
 
+	// ErrInvalidLogLevel is returned when LOG_LEVEL value is not a valid level name or number.
+	ErrInvalidLogLevel = errors.New("invalid log level")
+
 	// callerMarshalMutex protects global zerolog.CallerMarshalFunc modification
 	callerMarshalMutex sync.Mutex
 )
@@ -292,11 +295,20 @@ func GetLogLevel() zerolog.Level {
 	return level
 }
 
-// parseLogLevel parses a string to zerolog.Level with bounds validation.
+// parseLogLevel parses a string to zerolog.Level.
+// Supports both string names (info, debug, warn, error, trace, fatal, panic, disabled)
+// and numeric values (-1=trace, 0=debug, 1=info, 2=warn, 3=error, 4=fatal, 5=panic, 7=disabled).
 func parseLogLevel(s string) (zerolog.Level, error) {
-	val, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, err
+	// First try parsing as a level name (case-insensitive)
+	level, err := zerolog.ParseLevel(s)
+	if err == nil {
+		return level, nil
+	}
+
+	// Fall back to numeric parsing for backwards compatibility
+	val, numErr := strconv.Atoi(s)
+	if numErr != nil {
+		return 0, fmt.Errorf("%w: %q is not a valid level name or number", ErrInvalidLogLevel, s)
 	}
 
 	if val < int(zerolog.TraceLevel) || val > int(zerolog.Disabled) {
