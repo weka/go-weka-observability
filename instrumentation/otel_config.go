@@ -16,6 +16,12 @@ type (
 
 		// ResourceAttributes are additional key-value pairs attached to all spans
 		ResourceAttributes []any
+
+		// DisableGRPCServiceConfig disables gRPC service config resolution via DNS TXT records.
+		// When true (default), prevents slow DNS SRV/TXT lookups that can cause export timeouts
+		// on networks where these records don't exist (e.g., VPN, corporate DNS).
+		// Set OTEL_GRPC_DISABLE_SERVICE_CONFIG=false to restore the old behavior.
+		DisableGRPCServiceConfig bool `envconfig:"GRPC_DISABLE_SERVICE_CONFIG"`
 	}
 
 	// OTelOption configures OTelConfig via functional options pattern
@@ -26,8 +32,9 @@ type (
 // By default, no endpoint is set, meaning traces will not be exported.
 func DefaultOTelConfig() OTelConfig {
 	return OTelConfig{
-		Endpoint:           "",
-		ResourceAttributes: nil,
+		Endpoint:                 "",
+		ResourceAttributes:       nil,
+		DisableGRPCServiceConfig: true,
 	}
 }
 

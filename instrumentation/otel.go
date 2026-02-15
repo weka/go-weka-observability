@@ -190,6 +190,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -380,6 +381,7 @@ func setupOTelSDKInternal(
 		serviceName,
 		serviceVersion,
 		config.Endpoint,
+		config.DisableGRPCServiceConfig,
 		logger,
 		config.ResourceAttributes...)
 	if err != nil {
@@ -446,6 +448,7 @@ func newPropagator() propagation.TextMapPropagator {
 func newTraceProvider(
 	ctx context.Context,
 	serviceName, serviceVersion, endpoint string,
+	disableGRPCServiceConfig bool,
 	logger logr.Logger,
 	keysAndValues ...any,
 ) (*tracesdk.TracerProvider, error) {
@@ -459,11 +462,15 @@ func newTraceProvider(
 		if strings.Contains(endpoint, "https://") {
 			securityOption = otlptracegrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, ""))
 		}
-		traceExporter, err := otlptracegrpc.New(ctx,
+		exporterOpts := []otlptracegrpc.Option{
 			securityOption,
 			otlptracegrpc.WithTimeout(OTLPExporterTimeout),
 			otlptracegrpc.WithEndpointURL(endpoint),
-		)
+		}
+		if disableGRPCServiceConfig {
+			exporterOpts = append(exporterOpts, otlptracegrpc.WithDialOption(grpc.WithDisableServiceConfig()))
+		}
+		traceExporter, err := otlptracegrpc.New(ctx, exporterOpts...)
 		if err != nil {
 			logger.Error(err, "failed to create OTLP trace exporter")
 
