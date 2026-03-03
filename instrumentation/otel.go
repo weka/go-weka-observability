@@ -452,11 +452,12 @@ func newTraceProvider(
 	logger logr.Logger,
 	keysAndValues ...any,
 ) (*tracesdk.TracerProvider, error) {
-	logger.Info("Setting up OTel trace provider", "service", serviceName, "version", serviceVersion)
+	logger.V(VerbosityLevelDebug).
+		Info("Setting up OTel trace provider", "service", serviceName, "version", serviceVersion)
 	var traceProvider *tracesdk.TracerProvider
 
 	if endpoint != "" {
-		logger.Info("OTLP endpoint set", "endpoint", endpoint)
+		logger.V(VerbosityLevelDebug).Info("OTLP endpoint set", "endpoint", endpoint)
 
 		securityOption := otlptracegrpc.WithInsecure()
 		if strings.Contains(endpoint, "https://") {
