@@ -138,12 +138,10 @@ func TestConcurrentAccess(t *testing.T) {
 	numGoroutines := 100
 
 	for range numGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, spanLogger := instrumentation.CreateLogSpan(ctx, "concurrent-op")
 			spanLogger.End()
-		}()
+		})
 	}
 
 	wg.Wait()
