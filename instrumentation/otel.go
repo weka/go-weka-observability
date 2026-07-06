@@ -86,8 +86,8 @@
 //	}
 //
 //	func processRequest(ctx context.Context) {
-//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
-//	    defer end()
+//	    ctx, logger := instrumentation.CreateLogSpan(ctx, "process_request")
+//	    defer logger.End()
 //
 //	    logger.Info("Processing started", "request_id", "req-123")
 //	    // Span is automatically created and logs include trace IDs
@@ -97,8 +97,8 @@
 //	}
 //
 //	func queryDatabase(ctx context.Context) {
-//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "query_database")
-//	    defer end()
+//	    ctx, logger := instrumentation.CreateLogSpan(ctx, "query_database")
+//	    defer logger.End()
 //
 //	    logger.Info("Querying database", "query", "SELECT * FROM users")
 //	    // This span is a child of process_request span
@@ -106,22 +106,21 @@
 //
 // # Reusing Parent Span (Helper Functions)
 //
-// Sometimes you want a helper function to log under the parent's span without creating
-// a new span. Use an empty string for the span name, and DO NOT call end():
+// When a helper should log under the parent's span without creating a new one, borrow
+// the current span with CurrentSpanLogger. The returned SpanLoggerView has no End()
+// method, so a helper cannot accidentally close a span it does not own:
 //
 //	func processRequest(ctx context.Context) {
-//	    ctx, logger, end := instrumentation.GetLogSpan(ctx, "process_request")
-//	    defer end()
+//	    ctx, logger := instrumentation.CreateLogSpan(ctx, "process_request")
+//	    defer logger.End()
 //
 //	    logger.Info("Processing started")
 //	    helper(ctx) // Helper logs under same span
 //	}
 //
 //	func helper(ctx context.Context) {
-//	    _, logger, _ := instrumentation.GetLogSpan(ctx, "")
-//	    // Calling end() is safe (no-op) but not calling it makes it clearer
-//	    // that the parent owns the span lifecycle
-//	    logger.Info("Helper doing work") // Uses parent's span
+//	    view := instrumentation.CurrentSpanLogger(ctx)
+//	    view.Info("Helper doing work") // Uses parent's span; no End() to call
 //	}
 //
 // # Trace Management System
@@ -148,7 +147,7 @@
 //	    t.Parallel()  // ✅ Safe!
 //
 //	    ctx := context.Background()
-//	    ctx, recorder := instrumentation.SetupOTELTester(ctx)
+//	    ctx, recorder := oteltest.SetupTester(ctx)
 //	    defer recorder.Shutdown(context.Background())
 //
 //	    ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
@@ -164,7 +163,7 @@
 //	    // ⚠️ NO t.Parallel() - swaps global provider
 //
 //	    ctx := context.Background()
-//	    ctx, recorder := instrumentation.SetupOTELTesterWithProvider(ctx)
+//	    ctx, recorder := oteltest.SetupTesterWithProvider(ctx)
 //	    defer recorder.Shutdown(context.Background())
 //
 //	    ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")

@@ -9,6 +9,8 @@ import (
 type (
 	// OTelConfig configures OpenTelemetry SDK behavior.
 	// Follows the same pattern as logger.Config with environment variable overrides.
+	//
+	// See docs/instrumentation-configuration-api.md for setup patterns and env precedence.
 	OTelConfig struct {
 		// Endpoint is the OTLP exporter endpoint (e.g., "http://localhost:4317")
 		// Empty string means no traces will be exported
