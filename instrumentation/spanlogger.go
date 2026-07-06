@@ -39,6 +39,8 @@ type (
 	//
 	// Thread-safety: Safe to call from multiple goroutines. Each method delegates to
 	// the embedded Logger and Span, which are both thread-safe.
+	//
+	// See docs/spanlogger-api.md for the ownership model and the full API.
 	SpanLogger struct {
 		*spanLoggerBase
 		shutdown func() // private - never nil (either real cleanup or no-op)

@@ -62,6 +62,8 @@ type (
 
 	// Config represents complete logger configuration.
 	// Separates concerns: Sink (destination) vs Format (presentation).
+	//
+	// See docs/logger-configuration-api.md for configuration patterns and env overrides.
 	Config struct {
 		Format FormatConfig
 		Sink   SinkConfig

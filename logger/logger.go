@@ -57,8 +57,8 @@
 //	shutdown, _ := instrumentation.SetupOTelSDKWithOptions(ctx, "service", "v1.0.0", logr)
 //	defer shutdown(ctx)
 //
-//	ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
-//	defer end()
+//	ctx, spanLogger := instrumentation.CreateLogSpan(ctx, "operation")
+//	defer spanLogger.End()
 //	spanLogger.Info("Processing", "user_id", 123)
 //
 // See package documentation for complete examples and configuration options.

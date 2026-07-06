@@ -1,6 +1,8 @@
 // Package version provides version information for the go-weka-observability library.
 // It includes functionality to retrieve the library version for instrumentation
 // and observability purposes, following OpenTelemetry best practices.
+//
+// See docs/versioning.md for the resolution strategy and instrumentation-scope details.
 package version
 
 import (

@@ -9,6 +9,9 @@ Go observability toolkit providing structured logging with automatic rotation an
 - **`logger`** - Zero-allocation JSON logging via zerolog with automatic file rotation via lumberjack
 - **`instrumentation`** - OpenTelemetry tracing with SpanLogger API that combines logging and tracing
 
+## Documentation
+@docs/index.md
+
 ## Linter-Driven Development
 
 This project uses the **go-linter-driven-development** workflow.
