@@ -131,3 +131,9 @@ Old API functions in `deprecations.go` are deprecated. Use instead:
 - `GetLoggerForContext` → `logger.CreateLogger()` + `logger.ContextWithLogr()`
 - `GetLogSpan` → `CreateLogSpan` / `CurrentSpanLogger` / `CreateRootLogSpan`
 - `SetupOTelSDK` → `SetupOTelSDKWithOptions`
+
+## Agent skills
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
