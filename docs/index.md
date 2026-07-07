@@ -11,6 +11,8 @@
 
 **Architecture**
 - [versioning.md](versioning.md) — automatic module-version and instrumentation-scope resolution; `GetInstrumentationVersion`
+- [../CONTEXT.md](../CONTEXT.md) — domain glossary; span-ownership vocabulary (owned/borrowed, `SpanLogger`/`SpanLoggerView`)
+- [adr/index.md](adr/index.md) — architectural decision records index
 
 **Codebase Map** (generated snapshot, 2026-07-07)
 - [codebase/STACK.md](codebase/STACK.md) — languages, runtime, frameworks, dependencies
