@@ -12,6 +12,9 @@ Go observability toolkit providing structured logging with automatic rotation an
 ## Documentation
 @docs/index.md
 
+## Domain Glossary
+@CONTEXT.md
+
 ## Linter-Driven Development
 
 This project uses the **go-linter-driven-development** workflow.
