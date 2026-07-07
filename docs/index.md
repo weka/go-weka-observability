@@ -11,3 +11,12 @@
 
 **Architecture**
 - [versioning.md](versioning.md) — automatic module-version and instrumentation-scope resolution; `GetInstrumentationVersion`
+
+**Codebase Map** (generated snapshot, 2026-07-07)
+- [codebase/STACK.md](codebase/STACK.md) — languages, runtime, frameworks, dependencies
+- [codebase/ARCHITECTURE.md](codebase/ARCHITECTURE.md) — patterns, layers, data flow, entry points
+- [codebase/STRUCTURE.md](codebase/STRUCTURE.md) — directory layout and naming conventions
+- [codebase/CONVENTIONS.md](codebase/CONVENTIONS.md) — code style, patterns, error handling
+- [codebase/TESTING.md](codebase/TESTING.md) — test frameworks, structure, coverage
+- [codebase/INTEGRATIONS.md](codebase/INTEGRATIONS.md) — external services and exporters
+- [codebase/CONCERNS.md](codebase/CONCERNS.md) — tech debt, fragile areas, known issues
