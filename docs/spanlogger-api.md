@@ -615,16 +615,11 @@ defer logger.End()
 ## Testing Strategy
 
 ### Unit Tests
-**Covered**: All three API functions and both span types
-- `TestCreateLogSpan_CreatesOwnedSpan` - Verifies span ownership and End() requirement
-- `TestCreateLogSpan_CreatesChildSpan` - Validates parent-child relationships
-- `TestCreateRootLogSpan_BreaksParentChain` - Confirms independent trace IDs
-- `TestCurrentSpanLogger_ReturnsBorrowedSpan` - Validates view behavior
-- `TestSpanLoggerLoggingMethods` - Verifies all logging methods work and create span events
-- `TestSpanLoggerViewLoggingMethods` - Ensures view can log but not end
-- `TestSpanLoggerErrorMethods` - Distinguishes Error() vs SetError() behavior
-- `TestSpanLoggerSetAttributes` - Validates attribute setting
-- `TestSpanLoggerWithValues` - Tests context enrichment
+The `instrumentation` package tests, driven by the `TestSpanLoggerAPISuite` suite,
+cover all three creation functions and both span types: span ownership and the
+`End()` requirement, parent-child relationships, root-span trace independence,
+borrowed-view behavior, every logging and error method, attribute setting, and
+context enrichment via `WithValues`.
 
 **Approach**:
 - Using `testify/suite` for organized test structure
@@ -654,7 +649,7 @@ defer logger.End()
 - Panic in span creation if Tracer not initialized (could return error instead)
 
 ### Potential Extensions
-- Add `SpanLoggerWithSampling` for fine-grained sampling control per span
+- Add `SpanLoggerWithSampling` *(planned)* for fine-grained sampling control per span
 - Support for span links (connecting spans across trace boundaries)
 - Automatic metric generation from span durations
 - Integration with `slog` (Go 1.21+ structured logging)

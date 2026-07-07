@@ -122,16 +122,16 @@ SetupOTelSDKInternal() (initialization)
 ```
 Application Code
     ↓
-GetLogSpan(ctx, "operation")
+CreateLogSpan(ctx, "operation")
     ↓
     ├─→ Creates OpenTelemetry Span
     └─→ Creates logr.Logger with trace/span IDs
     ↓
 SpanLogger (combined logger + span)
     ↓
-    ├─→ spanLogger.Info() → logs to logger + adds span event
-    ├─→ spanLogger.Error() → logs error + records span error
-    └─→ defer end() → closes span, logs completion
+    ├─→ logger.Info() → logs to logger + adds span event
+    ├─→ logger.Error() → logs error + records span error
+    └─→ defer logger.End() → closes span, logs completion
 ```
 
 ---
@@ -365,7 +365,7 @@ If no logger is in context, a default logger will be created automatically (but 
 - **[Examples](../examples/)** - Comprehensive runnable examples
 
 **🔄 Migration Note:**
-The old `GetLogSpan` API is deprecated. See the [migration guide](spanlogger-api.md#migration-from-getlogspan) for upgrade instructions.
+The legacy three-value span API is deprecated in favor of `CreateLogSpan`. See the [migration guide](spanlogger-api.md#migration-from-getlogspan) for upgrade instructions.
 
 ### SpanLogger Methods
 
@@ -411,8 +411,8 @@ spanLogger.SetAttributes(
 
 ```go
 func processOrder(ctx context.Context, orderID string) error {
-    ctx, logger, end := instrumentation.GetLogSpan(ctx, "processOrder")
-    defer end()
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "processOrder")
+    defer logger.End()
 
     logger.Info("Processing order", "order_id", orderID)
 
@@ -423,20 +423,18 @@ func processOrder(ctx context.Context, orderID string) error {
 }
 
 func validateData(ctx context.Context, orderID string) {
-    // Empty string ("") reuses parent span
-    _, logger, _ := instrumentation.GetLogSpan(ctx, "")
-    // DO NOT call end() - no new span created!
+    // Borrow the current span from context - no new span created
+    view := instrumentation.CurrentSpanLogger(ctx)
 
-    logger.Info("Validating data", "order_id", orderID)
+    view.Info("Validating data", "order_id", orderID)
     // Logs include parent's trace_id and span_id
 }
 ```
 
 **IMPORTANT:**
-- Empty string (`""`) reuses the current span from context (doesn't create a new one)
-- Calling `end()` is safe (no-op) but not recommended for code clarity
-- Cannot pass `keysAndValues` when name is empty (will panic)
-- Use this pattern for helper functions that don't need their own span
+- `CurrentSpanLogger` returns a `SpanLoggerView` that borrows the current span
+- The view has no `End()` method, so a helper cannot close a span it does not own
+- Use this pattern for helper functions that log under the parent's span
 
 ---
 
@@ -446,8 +444,8 @@ func validateData(ctx context.Context, orderID string) {
 
 ```go
 func processOrder(ctx context.Context, orderID string) error {
-    ctx, logger, end := instrumentation.GetLogSpan(ctx, "processOrder")
-    defer end()
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "processOrder")
+    defer logger.End()
 
     logger.Info("Processing order", "order_id", orderID)
 
@@ -466,8 +464,8 @@ func processOrder(ctx context.Context, orderID string) error {
 
 ```go
 func processOrder(ctx context.Context, orderID string) error {
-    ctx, logger, end := instrumentation.GetLogSpan(ctx, "processOrder")
-    defer end()
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "processOrder")
+    defer logger.End()
 
     logger.Info("Processing order", "order_id", orderID)
 
@@ -484,8 +482,8 @@ func processOrder(ctx context.Context, orderID string) error {
 }
 
 func chargePayment(ctx context.Context, orderID string) error {
-    ctx, logger, end := instrumentation.GetLogSpan(ctx, "chargePayment")
-    defer end()
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "chargePayment")
+    defer logger.End()
 
     logger.Info("Charging payment", "order_id", orderID)
     // Payment logic
@@ -506,8 +504,8 @@ processOrder (parent span)
 import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 func callExternalAPI(ctx context.Context) error {
-    ctx, logger, end := instrumentation.GetLogSpan(ctx, "callExternalAPI")
-    defer end()
+    ctx, logger := instrumentation.CreateLogSpan(ctx, "callExternalAPI")
+    defer logger.End()
 
     // Wrap HTTP client with otelhttp for automatic trace propagation
     client := &http.Client{
@@ -547,8 +545,8 @@ func main() {
 
 func handleOrders(w http.ResponseWriter, r *http.Request) {
     // Context already has trace from otelhttp middleware
-    ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "handleOrders")
-    defer end()
+    ctx, logger := instrumentation.CreateLogSpan(r.Context(), "handleOrders")
+    defer logger.End()
 
     logger.Info("Handling order request", "method", r.Method)
     // Your handler logic
@@ -905,7 +903,7 @@ instrumentation.SetupOTelSDKWithOptions(...)
 
 **Problem:** Logs don't show `trace_id` and `span_id`.
 
-**Solution:** Use `GetLogSpan` instead of separate logger:
+**Solution:** Use `CreateLogSpan` instead of separate logger:
 
 ```go
 // ❌ Wrong
@@ -913,9 +911,9 @@ logger := logger.MustLogrFromContext(ctx)
 logger.Info("message")
 
 // ✅ Correct
-ctx, spanLogger, end := instrumentation.GetLogSpan(ctx, "operation")
-defer end()
-spanLogger.Info("message")  // Includes trace_id and span_id
+ctx, logger := instrumentation.CreateLogSpan(ctx, "operation")
+defer logger.End()
+logger.Info("message")  // Includes trace_id and span_id
 ```
 
 ---
@@ -948,7 +946,7 @@ shutdown1, _ := instrumentation.SetupOTelSDKWithOptions(
 defer shutdown1(ctx)
 
 // Service 2 uses global tracer set by first setup
-// Just use GetLogSpan normally
+// Just use CreateLogSpan normally
 ```
 
 ### Sampling Configuration

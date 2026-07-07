@@ -65,7 +65,7 @@ OpenTelemetry distinguishes between:
 The library automatically sets its instrumentation scope when creating tracers, with **both name and version extracted from Go module information**:
 
 ```go
-// In instrumentation/otel.go
+// instrumentation.Tracer construction
 Tracer = otel.Tracer(
     version.GetInstrumentationName(),                               // Library name (from module path)
     trace.WithInstrumentationVersion(version.GetInstrumentationVersion()), // Library version
@@ -260,18 +260,13 @@ The library will automatically report its version via `GetInstrumentationVersion
 
 ### Code Location
 
-```
-go-weka-observability/
-├── internal/version/
-│   ├── version.go          # GetInstrumentationVersion() implementation
-│   └── version_test.go     # Version resolution tests
-└── instrumentation/
-    └── otel.go             # Tracer creation with instrumentation scope
-```
+The library resolves its version through two collaborating packages:
+- **`internal/version`** — implements `GetInstrumentationVersion()` and `GetInstrumentationName()`
+- **`instrumentation`** — consumes them when constructing the exported `Tracer` with instrumentation scope
 
 ### Key Functions
 
-**`internal/version/version.go`**:
+**`internal/version.GetInstrumentationVersion()` / `internal/version.GetInstrumentationName()`**:
 ```go
 // GetInstrumentationVersion returns the library version using Go's module system
 func GetInstrumentationVersion() string {
@@ -294,7 +289,7 @@ func GetInstrumentationName() string {
 }
 ```
 
-**`instrumentation/otel.go`**:
+**`instrumentation.Tracer` construction**:
 ```go
 // Create tracer with library instrumentation scope (both name and version automatic)
 Tracer = otel.Tracer(

@@ -403,10 +403,12 @@ logger := logger.MustLogrFromContext(ctx).WithName(name)
 
 **What you had:**
 ```go
-zlog := zerologger.NewZeroLoggerWithConfig(zerologger.Config{
-    OutputMode:  zerologger.FileMode,
-    LogDir:      "/var/log",
-    LogFileName: "app.log",
+zlog := logger.NewZeroLoggerWithConfig(logger.Config{
+    Sink: logger.SinkConfig{
+        Mode:     logger.FileMode,
+        Dir:      "/var/log",
+        FileName: "app.log",
+    },
 })
 logr := zerologr.New(&zlog)
 ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "")
@@ -545,9 +547,11 @@ import (
 )
 
 zlog := logger.NewZeroLoggerWithConfig(logger.Config{
-    OutputMode:  logger.FileMode,
-    LogDir:      "/var/log",
-    LogFileName: "app.log",
+    Sink: logger.SinkConfig{
+        Mode:     logger.FileMode,
+        Dir:      "/var/log",
+        FileName: "app.log",
+    },
 })
 logr := zerologr.New(zlog)
 ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "my-service")
@@ -906,4 +910,4 @@ func setupTestEnvironment(ctx context.Context) *TestEnv {
 ## See Also
 
 - [Logger Configuration API](logger-configuration-api.md) - Complete configuration documentation
-- [examples/logger_initialization.go](../examples/logger_initialization.go) - 7 comprehensive examples
+- [examples/](../examples/) - Runnable examples demonstrating `CreateLogger()`, `CreateLoggerFrom()`, `MustLogrFromContext()`, and graceful/must retrieval patterns

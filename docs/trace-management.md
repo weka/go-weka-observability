@@ -514,34 +514,11 @@ func TestProviderSwapDetection(t *testing.T) {
 
 ### Unit Tests
 
-**tracer_test.go** covers core resolution logic:
-
-- **`TestGetTracerProviderDetection`** - Verifies automatic provider change detection
-  - Creates two providers with different recorders
-  - Swaps provider via `otel.SetTracerProvider()`
-  - Verifies spans route to correct recorder after swap
-  - **Coverage**: Provider pointer comparison and cache invalidation
-
-- **`TestContextOverride`** - Verifies context-based tracer injection takes priority
-  - Sets up global provider (should be ignored)
-  - Injects custom tracer via `ContextWithTracer()`
-  - Verifies spans use context tracer, not global provider
-  - **Coverage**: Priority 1 (context override) in resolution flow
-
-- **`TestProviderSwapPattern`** - Validates parallel-safe test helper
-  - Uses `oteltest.SetupTester()` with `t.Parallel()`
-  - Creates spans and verifies they're recorded
-  - **Coverage**: Context-based injection for parallel test safety
-
-- **`TestConcurrentAccess`** - Race condition detection with -race flag
-  - Spawns 100 goroutines calling `CreateLogSpan()` concurrently
-  - Validates all spans created successfully
-  - **Coverage**: Thread safety of `getTracer()` double-check locking
-
-- **`TestCacheHitPerformance`** - Fast path validation
-  - Creates multiple spans without provider changes
-  - Verifies all spans use same cached tracer
-  - **Coverage**: RWMutex read performance optimization
+The `instrumentation` package tests cover the core resolution logic: automatic
+provider-change detection and cache invalidation, context-based tracer injection
+taking priority over the global provider (`ContextWithTracer`), parallel-safe span
+creation via `oteltest.SetupTester`, thread safety of the cache under concurrent
+access, and the fast cached-read path.
 
 ### Test Strategy
 
@@ -552,7 +529,7 @@ func TestProviderSwapDetection(t *testing.T) {
 - Thread safety (double-check locking)
 
 **Integration test coverage**:
-- **logspan_test.go** - Testify suite using `oteltest.SetupTesterWithProvider`
+- **`TestSpanLoggerAPISuite`** (testify suite, `instrumentation` package) - Uses `oteltest.SetupTesterWithProvider`
 - **Parallel test validation** - Multiple tests with `t.Parallel()` using `oteltest.SetupTester`
 
 **Race detector coverage**: All tests pass with `go test -race`

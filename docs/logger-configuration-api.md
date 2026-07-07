@@ -365,7 +365,7 @@ Returns default configuration for console logging.
 ```go
 config := logger.DefaultConfig()
 // OutputMode: ConsoleMode
-// LogFileName: "" (empty)
+// FileName: "" (empty)
 ```
 
 #### `NewConfigFromEnv(defaultConfig Config) Config`
@@ -386,9 +386,9 @@ os.Setenv("LOG_MAX_SIZE_MB", "50")
 
 config := logger.NewConfigFromEnv(custom)
 // Result:
-// - MaxLogSize: 50 (from env)
-// - LogDir: "/my/logs" (from custom)
-// - LogFileName: "app.log" (from custom)
+// - MaxSizeMB: 50 (from env)
+// - Dir: "/my/logs" (from custom)
+// - FileName: "app.log" (from custom)
 ```
 
 #### `NewDefaultConfigWithEnvOverride() Config`
@@ -447,25 +447,23 @@ log.Info().Msg("Started")
 
 The logger **never crashes** due to misconfiguration. Instead, it emits warnings via `slog` and uses safe fallbacks.
 
-#### Missing LogFileName (FileMode)
+#### Missing FileName (FileMode)
 
 **Configuration:**
 ```go
 config := logger.DefaultConfig()
 config.OutputMode = logger.FileMode
-// Forgot to set LogFileName!
+// Forgot to set FileName!
 ```
 
 **Behavior:**
 ```
-2025/09/30 12:00:00 WARN FileMode requires LogFileName, using fallback
-    fallback=app.log
-    suggestion="set LogFileName explicitly in your config"
+2025/09/30 12:00:00 WARN FileMode requires FileName, using fallback fallback=app.log
 ```
 
 **Result:** Logs written to `/var/log/app.log`
 
-#### Missing LogDir (FileMode)
+#### Missing Dir (FileMode)
 
 **Configuration:**
 ```go
@@ -480,9 +478,7 @@ config := logger.Config{
 
 **Behavior:**
 ```
-2025/09/30 12:00:00 WARN FileMode requires LogDir, using fallback
-    fallback=/tmp
-    suggestion="set LogDir explicitly in your config"
+2025/09/30 12:00:00 WARN FileMode requires Dir, using fallback fallback=/tmp
 ```
 
 **Result:** Logs written to `/tmp/test.log`
@@ -513,9 +509,9 @@ log := logger.NewZeroLoggerWithConfig(config)
 
 Powered by [lumberjack](https://github.com/natefinch/lumberjack):
 
-1. **Size-Based Rotation**: When `myapp.log` reaches `MaxLogSize` MB, it's renamed to `myapp-2025-09-30T12-00-00.000.log`
+1. **Size-Based Rotation**: When `myapp.log` reaches `MaxSizeMB` MB, it's renamed to `myapp-2025-09-30T12-00-00.000.log`
 2. **Compression**: Old logs are gzipped: `myapp-2025-09-30T12-00-00.000.gz`
-3. **Backup Management**: Keep only `MaxLogFiles` backups
+3. **Backup Management**: Keep only `MaxFiles` backups
 4. **Age-Based Cleanup**: Delete logs older than `MaxAge` days
 
 ### File Naming Convention
@@ -707,7 +703,7 @@ dbLog := logger.NewZeroLoggerWithConfig(dbConfig)
 
 // Queue module
 queueConfig := baseConfig
-queueConfig.LogFileName = "queue.log"
+queueConfig.Sink.FileName = "queue.log"
 queueLog := logger.NewZeroLoggerWithConfig(queueConfig)
 ```
 
@@ -834,7 +830,7 @@ config := logger.NewConfigFromEnv(appDefaults)
 
 // ❌ Bad - hardcoded
 config := logger.Config{
-    LogDir: "/var/log", // Fixed, can't override
+    Sink: logger.SinkConfig{Dir: "/var/log"}, // Fixed, can't override
 }
 ```
 
@@ -882,8 +878,8 @@ config.Sink.MaxAgeDays = 999
 **Symptoms:** No log files created
 
 **Check:**
-1. Is `LogFileName` set for FileMode?
-2. Does `LogDir` exist and is it writable?
+1. Is `FileName` set for FileMode?
+2. Does `Dir` exist and is it writable?
 3. Is log level filtering messages? (Set `LOG_LEVEL=-1` to see everything)
 4. Check stderr for validation warnings
 
@@ -944,4 +940,4 @@ The logger configuration architecture provides:
 ✅ **High Performance** - Zero-allocation structured logging
 ✅ **Multi-Level** - Separate info and error logs
 
-For detailed examples, see the test suite in `logger/logger_test.go`.
+For detailed examples, see the test package `logger/`.
