@@ -1,12 +1,12 @@
 {
   "enabledPlugins": {
-    "ai-coding-rules:go-linter-driven-development": true
+    "go-linter-driven-development@weka-ldd": true
   },
   "extraKnownMarketplaces": {
-    "ai-coding-rules": {
+    "weka-ldd": {
       "source": {
         "source": "github",
-        "repo": "buzzdan/ai-coding-rules"
+        "repo": "weka/linter-driven-development"
       }
     }
   }
